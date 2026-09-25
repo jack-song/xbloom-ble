@@ -44,6 +44,11 @@ xbloom = "xbloom_ble.cli:main"
 [tool.setuptools.packages.find]
 include = ["xbloom_ble*"]
 
+# The local web UI's page is a static asset inside the package (`xbloom web` reads it
+# with importlib.resources), so it has to ship in the wheel.
+[tool.setuptools.package-data]
+xbloom_ble = ["web/*.html"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 

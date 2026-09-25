@@ -25,8 +25,8 @@ implicit, never a consequence of loading.**
 This package *can* start a brew remotely (the app-style "Brew" button): `start()`
 sends commit (`0x42`) + start (`0x46`), and `cancel_brew()` sends `0x47`. That is a
 deliberate, first-class capability — **but it is only ever reached through an
-explicit `start()`/`brew()` call the caller opts into, and in the TUI/CLI it sits
-behind a confirmation gate.** The invariant is the *separation*, not a ban on the
+explicit `start()`/`brew()` call the caller opts into, and in the TUI/CLI/web UI it
+sits behind a confirmation gate.** The invariant is the *separation*, not a ban on the
 opcodes.
 
 Concretely — the properties every change must preserve:
@@ -41,10 +41,22 @@ Concretely — the properties every change must preserve:
   / `build_start` / `build_cancel`) and are sent ONLY from `XBloomClient.start()` /
   `cancel_brew()`. Never wire them as a side effect of `load_recipe()`, and never add
   an auto-start path that fires them without the caller explicitly asking to brew.
+- **The recipe generator keeps the same separation one layer up.**
+  `xbloom_ble.brewgen` is the generator's logic with no UI attached; both front-ends
+  (`scripts/gen-brew.py` and `xbloom web`) go through `brewgen.run_brew()`, which is the
+  single place a brew command is executed. It appends `--start` only when the caller
+  passes `start=True`, and refuses that outright unless the caller also passes
+  `attended=True` — the front-end's assertion that a person is present (a real TTY in
+  the terminal guide, the confirmation dialog in the web UI). **Don't add a call path
+  that bypasses `run_brew`, and don't make `attended` default to True.**
 - **Tests guard this** — `tests/test_protocol.py::test_load_frames_are_load_only`
   (LOAD frames never carry `0x42`/`0x46`/`0x47`) and `test_load_frames_opcode_order`
-  (the four frames are exactly `a4, a6, a8, 41`). **Keep them; never weaken or delete
-  them.** If you touch the protocol layer they must still pass.
+  (the four frames are exactly `a4, a6, a8, 41`); plus, for the generator,
+  `tests/test_brewgen.py::test_brew_argv_is_load_only_by_default`,
+  `::test_run_brew_refuses_unattended_start` and
+  `tests/test_webui.py::test_load_never_passes_start` / the `test_start_requires_*` set.
+  **Keep them; never weaken or delete them.** If you touch the protocol layer or the
+  generator they must still pass.
 - **Loading leaves the machine armed at `0x1f`.** A human can still approve on the
   machine (load-only flow); a remote `start()` is the alternative. Either way, loading
   by itself never dispenses water.

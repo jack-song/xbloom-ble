@@ -595,6 +595,23 @@ def build_parser() -> argparse.ArgumentParser:
     s_brew.add_argument("--debug", action="store_true",
                         help="log the full BLE chatter to a file (xbloom-debug-*.log)")
 
+    s_web = sub.add_parser(
+        "web",
+        help="serve the local web UI for the recipe generator (loopback only)",
+    )
+    s_web.add_argument("--port", type=int, default=8765, help="port (default 8765)")
+    s_web.add_argument("--host", default="127.0.0.1",
+                       help="bind address — leave it on loopback unless you mean it")
+    s_web.add_argument("--address", help="machine BLE address (or set XBLOOM_ADDRESS)")
+    s_web.add_argument("--cache-dir", help="directory for generated recipes "
+                                           "(default: the xbloom state dir)")
+    s_web.add_argument("--timeout", type=float, default=600.0,
+                       help="telemetry stream seconds per brew (default 600)")
+    s_web.add_argument("--no-debug", dest="debug", action="store_false", default=True,
+                       help="don't capture the BLE frame log for each brew")
+    s_web.add_argument("--no-open", dest="open_browser", action="store_false", default=True,
+                       help="don't open a browser window")
+
     s_slot = sub.add_parser(
         "save-slots",
         help="program the 3 machine preset slots A/B/C from 3 recipes (presets — NOT a brew)",
@@ -699,12 +716,32 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_init(args)
     if args.command == "config":
         return _cmd_config(args)
+    if args.command == "web":
+        return _cmd_web(args)
     if args.command == "doctor":
         return _cmd_doctor(args)
     if args.command == "cloud":
         return _cmd_cloud(args)
     parser.error("unknown command")  # tui/None handled above
     return 2  # pragma: no cover
+
+
+def _cmd_web(args) -> int:
+    """Serve the local web UI. A front-end over xbloom_ble.brewgen — it loads recipes,
+    and only starts a brew through its own explicit confirmation dialog."""
+    import os
+
+    from .webui import serve
+    return serve(
+        host=args.host,
+        port=args.port,
+        root=getattr(args, "cache_dir", None),
+        address=args.address or os.environ.get("XBLOOM_ADDRESS"),
+        timeout=args.timeout,
+        debug=args.debug,
+        open_browser=args.open_browser,
+        verbose=getattr(args, "verbose", False),
+    )
 
 
 def _cmd_tui(args) -> int:

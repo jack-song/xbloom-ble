@@ -258,6 +258,43 @@ Run it against the simulator (no machine) with `--demo` to explore it safely.
 | Recipes + detail sidebar<br>![Recipes list with a live detail sidebar](docs/img/tui-recipes.jpg) | The recipe editor<br>![The slim recipe editor: aligned fields, pattern selector, agit toggle](docs/img/tui-editor.jpg) |
 | Brew confirm gate<br>![The 3-way brew confirm gate: Cancel / Load only / Start](docs/img/tui-brew-gate.jpg) | Brew history + telemetry<br>![History tab with a saved brew's water/coffee curve](docs/img/tui-history.jpg) |
 
+### Local web UI (`xbloom web`)
+
+`xbloom web` serves a one-page **recipe generator** on `127.0.0.1:8765` and opens it:
+you set a handful of parameters, it derives the whole brew, validates it live and hands
+the result to `xbloom brew`.
+
+```bash
+xbloom web                       # → http://127.0.0.1:8765
+xbloom web --port 9000 --no-open --address AA:BB:CC:DD:EE:FF
+```
+
+The page shows, side by side:
+
+- **the ten parameters** — dose, ratio, temp, bloom time, pattern, main pours, pause,
+  rpm, flow, grind — each with its units and range, and a dot next to any you have
+  changed from the default;
+- **the brew they produce** — the derived name, the headline numbers (dose / ratio /
+  total water / grind), and a row per pour with its volume (bar-scaled so the shape of
+  the brew is visible at a glance), temperature, pattern, rpm and the pause after it;
+- **the validation**, from the same `Recipe.validate()` the CLI uses, live on every
+  keystroke, plus a warning if any pour exceeds the 127 ml the phone app ever sends;
+- **the live run** — the `xbloom brew` output streaming into the page;
+- **recent brews**, re-loadable *as they are on disk* (no regeneration, so a repeat is
+  byte-identical to what ran last time).
+
+**Safety.** The two buttons are separate actions, as everywhere else in this project.
+*Load onto machine* only arms it — you approve on the machine, and that route cannot
+start a brew. *Load + START brew* opens a confirmation dialog that requires you to name
+the brew and tick that water, cup and coffee are in place; only then does the server
+pass `--start`. The server binds loopback, and its POST routes require a header a
+cross-origin page cannot send, so a website you happen to have open cannot reach it.
+
+The same logic is available as a plain terminal guide — `scripts/gen-brew.py`, every
+parameter on one screen, `[1-10]` to edit, `[g]` to load, `[s]` to load and start. Both
+front-ends sit on `xbloom_ble.brewgen`, so they cannot disagree about what a given set
+of parameters brews.
+
 ### Program the dial presets (save-slots)
 
 The xBloom Studio's **Auto Mode** stores three recipes on the machine's dial
@@ -720,6 +757,23 @@ build a different front-end:
 ```python
 from xbloom_ble.protocol import build_load_frames
 frames = build_load_frames(recipe.to_protocol_dict())  # [a4, a6, a8, 41]
+```
+
+`xbloom_ble.brewgen` is the recipe **generator's** logic, with no UI attached — the
+terminal guide and `xbloom web` are both thin front-ends over it, and a third one would
+be too:
+
+```python
+from xbloom_ble import brewgen
+
+params = brewgen.BrewParams(dose=15.0, ratio=16.0, pattern="center")
+plan = brewgen.plan(params)          # volumes, pours, YAML, validation, cache filename
+print(plan.total_ml, plan.valid, plan.error)
+path, unchanged = brewgen.write_cached(params)
+
+# Load-only unless you pass start=True, which additionally requires the caller to
+# state that a human is present — see the safety note above.
+argv, rc = brewgen.run_brew(path)
 ```
 
 The cloud client (`pip install "xbloom-ble[cloud]"`) pushes to the app account;

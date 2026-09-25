@@ -1,0 +1,483 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>xBloom brew</title>
+<style>
+  :root {
+    --bg: #fbfaf8; --panel: #ffffff; --ink: #1c1917; --dim: #78716c; --line: #e7e5e4;
+    --accent: #b45309; --accent-soft: #fef3c7; --bloom: #0e7490; --bloom-soft: #cffafe;
+    --danger: #b91c1c; --danger-soft: #fee2e2; --ok: #15803d;
+    --radius: 10px;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #17161a; --panel: #201f24; --ink: #f4f3f1; --dim: #a8a29e; --line: #35333a;
+      --accent: #fbbf24; --accent-soft: #3b2f10; --bloom: #67e8f9; --bloom-soft: #0d3b45;
+      --danger: #fca5a5; --danger-soft: #45191a; --ok: #6ee7a8;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1060px; margin: 0 auto; padding: 24px 16px 64px; }
+  header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+  h1 { font-size: 19px; margin: 0; letter-spacing: -0.01em; }
+  .meta { color: var(--dim); font-size: 12.5px; font-family: var(--mono); }
+  .cols { display: grid; grid-template-columns: 340px 1fr; gap: 20px; align-items: start; }
+  @media (max-width: 800px) { .cols { grid-template-columns: 1fr; } }
+  .panel {
+    background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 16px;
+  }
+  .panel h2 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.09em; color: var(--dim);
+    margin: 0 0 12px; font-weight: 600;
+  }
+
+  /* --- parameters --------------------------------------------------------- */
+  .param { display: grid; grid-template-columns: 1fr 104px; gap: 4px 10px;
+           align-items: center; padding: 7px 0; border-bottom: 1px solid var(--line); }
+  .param:last-child { border-bottom: 0; }
+  .param .name { font-weight: 550; display: flex; align-items: center; gap: 6px; }
+  .param .hint { grid-column: 1; color: var(--dim); font-size: 12px; line-height: 1.3; }
+  .param input, .param select {
+    font: 600 15px/1 var(--mono); color: var(--ink); background: var(--bg);
+    border: 1px solid var(--line); border-radius: 7px; padding: 7px 8px; width: 100%;
+    grid-row: span 2; text-align: right;
+  }
+  .param select { text-align: left; font-weight: 550; }
+  .param input:focus, .param select:focus { outline: 2px solid var(--accent); border-color: transparent; }
+  .changed { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+  .param .unit { color: var(--dim); font-weight: 500; font-size: 12.5px;
+                 font-family: var(--mono); }
+  .row-actions { display: flex; gap: 8px; margin-top: 14px; }
+
+  /* --- the plan ----------------------------------------------------------- */
+  .headline { display: flex; align-items: baseline; justify-content: space-between;
+              gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+  .recipe-name { font-size: 17px; font-weight: 650; letter-spacing: -0.01em; }
+  .totals { display: flex; gap: 22px; }
+  .total { text-align: right; }
+  .total b { display: block; font: 700 24px/1.1 var(--mono); letter-spacing: -0.02em;
+             font-variant-numeric: tabular-nums; }
+  .total b i { font: 600 15px/1.8 var(--mono); font-style: normal; color: var(--dim); }
+  .total span { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em;
+                color: var(--dim); }
+
+  table.pours { width: 100%; border-collapse: collapse; font-family: var(--mono);
+                font-variant-numeric: tabular-nums; font-size: 13.5px; }
+  table.pours th {
+    text-align: right; font: 600 10.5px/1 -apple-system, system-ui, sans-serif;
+    text-transform: uppercase; letter-spacing: 0.07em; color: var(--dim);
+    padding: 0 8px 7px; border-bottom: 1px solid var(--line);
+  }
+  table.pours th:first-child, table.pours td:first-child { text-align: left; }
+  table.pours td { padding: 9px 8px; border-bottom: 1px solid var(--line); text-align: right;
+                   white-space: nowrap; }
+  table.pours tr:last-child td { border-bottom: 0; }
+  td.label { font: 600 14px/1 -apple-system, system-ui, sans-serif; }
+  tr.bloom td.label { color: var(--bloom); }
+  td.ml { font-weight: 700; font-size: 15px; }
+  .bar { height: 5px; border-radius: 3px; background: var(--accent); min-width: 3px;
+         display: block; }
+  tr.bloom .bar { background: var(--bloom); }
+  .bar-cell { width: 20%; }
+  .chip { display: inline-block; padding: 2px 7px; border-radius: 5px; font-size: 11.5px;
+          font-weight: 600; background: var(--accent-soft); color: var(--accent);
+          font-family: -apple-system, system-ui, sans-serif; }
+  tr.bloom .chip, .chip.center { background: var(--bloom-soft); color: var(--bloom); }
+  .muted { color: var(--dim); }
+  .math { margin-top: 12px; font-family: var(--mono); font-size: 12.5px; color: var(--dim);
+          font-variant-numeric: tabular-nums; }
+
+  .banner { margin-top: 14px; padding: 10px 12px; border-radius: 8px; font-size: 13.5px;
+            display: flex; gap: 9px; align-items: flex-start; }
+  .banner.bad { background: var(--danger-soft); color: var(--danger); }
+  .banner.warn { background: var(--accent-soft); color: var(--accent); }
+  .banner b { font-weight: 650; }
+
+  /* --- buttons ------------------------------------------------------------ */
+  button {
+    font: 600 14px/1 -apple-system, system-ui, sans-serif; padding: 11px 15px;
+    border-radius: 8px; border: 1px solid var(--line); background: var(--panel);
+    color: var(--ink); cursor: pointer;
+  }
+  button:hover:not(:disabled) { border-color: var(--dim); }
+  button:disabled { opacity: 0.42; cursor: not-allowed; }
+  button.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  button.danger { color: var(--danger); border-color: var(--danger); }
+  button.danger:hover:not(:disabled) { background: var(--danger-soft); }
+  button.small { padding: 6px 10px; font-size: 12.5px; }
+  .actions { display: flex; gap: 10px; margin-top: 16px; align-items: center; flex-wrap: wrap; }
+  .actions .note { color: var(--dim); font-size: 12.5px; }
+
+  /* --- recent + run log --------------------------------------------------- */
+  .brew-row { display: grid; grid-template-columns: 1fr auto auto; gap: 10px;
+              align-items: center; padding: 9px 0; border-bottom: 1px solid var(--line); }
+  .brew-row:last-child { border-bottom: 0; }
+  .brew-row .file { font-family: var(--mono); font-size: 12.5px; }
+  .brew-row .sum { color: var(--dim); font-family: var(--mono); font-size: 12px; }
+  .brew-row .age { color: var(--dim); font-size: 12px; }
+  pre.log {
+    margin: 12px 0 0; padding: 12px; background: var(--bg); border: 1px solid var(--line);
+    border-radius: 8px; font-family: var(--mono); font-size: 12.5px; line-height: 1.55;
+    max-height: 340px; overflow: auto; white-space: pre-wrap; word-break: break-word;
+  }
+  .runhead { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .tag { font: 600 11px/1 -apple-system, system-ui, sans-serif; text-transform: uppercase;
+         letter-spacing: 0.07em; padding: 4px 8px; border-radius: 5px;
+         background: var(--accent-soft); color: var(--accent); }
+  .tag.live { background: var(--danger-soft); color: var(--danger); }
+  .tag.done { background: var(--bloom-soft); color: var(--bloom); }
+  .stack { display: grid; gap: 20px; }
+
+  dialog {
+    border: 1px solid var(--line); border-radius: 12px; background: var(--panel);
+    color: var(--ink); padding: 20px; max-width: 440px; width: calc(100% - 32px);
+  }
+  dialog::backdrop { background: rgba(0,0,0,0.45); }
+  dialog h3 { margin: 0 0 8px; font-size: 16px; }
+  dialog p { margin: 0 0 14px; font-size: 13.5px; color: var(--dim); }
+  dialog label.check { display: flex; gap: 9px; align-items: flex-start; font-size: 13.5px;
+                       margin: 12px 0 18px; cursor: pointer; }
+  dialog input[type=text] {
+    width: 100%; font: 600 14px/1 var(--mono); padding: 9px 10px; border-radius: 8px;
+    border: 1px solid var(--line); background: var(--bg); color: var(--ink);
+  }
+  dialog .summary { font-family: var(--mono); font-size: 13px; padding: 10px 12px;
+                    background: var(--bg); border-radius: 8px; margin-bottom: 14px;
+                    font-variant-numeric: tabular-nums; }
+  dialog .btns { display: flex; gap: 10px; justify-content: flex-end; }
+  .field-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
+                 color: var(--dim); font-weight: 600; display: block; margin-bottom: 5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>xBloom brew generator</h1>
+    <span class="meta" id="meta"></span>
+  </header>
+
+  <div class="cols">
+    <!-- parameters ------------------------------------------------------- -->
+    <section class="panel">
+      <h2>Parameters</h2>
+      <div id="params"></div>
+      <div class="row-actions">
+        <button class="small" id="reset">Reset to defaults</button>
+        <button class="small" id="show-yaml">Show YAML</button>
+      </div>
+    </section>
+
+    <div class="stack">
+      <!-- the plan ------------------------------------------------------- -->
+      <section class="panel">
+        <h2>This brew</h2>
+        <div class="headline">
+          <div class="recipe-name" id="recipe-name">…</div>
+          <div class="totals" id="totals"></div>
+        </div>
+        <table class="pours">
+          <thead><tr>
+            <th>pour</th><th>ml</th><th class="bar-cell"></th><th>temp</th>
+            <th>pattern</th><th>rpm</th><th>then wait</th>
+          </tr></thead>
+          <tbody id="pours"></tbody>
+        </table>
+        <div class="math" id="math"></div>
+        <div id="banners"></div>
+        <div class="actions">
+          <button class="primary" id="load">Load onto machine</button>
+          <button class="danger" id="start">Load + START brew</button>
+          <span class="note" id="action-note">Loading only arms the machine — you approve on it.</span>
+        </div>
+      </section>
+
+      <!-- live run ------------------------------------------------------- -->
+      <section class="panel" id="run-panel" hidden>
+        <h2>Run</h2>
+        <div class="runhead">
+          <span class="tag" id="run-tag">…</span>
+          <strong id="run-name"></strong>
+          <span class="meta" id="run-meta"></span>
+          <button class="small" id="run-stop">Stop watching</button>
+        </div>
+        <pre class="log" id="run-log"></pre>
+      </section>
+
+      <!-- recent --------------------------------------------------------- -->
+      <section class="panel">
+        <h2>Recent brews</h2>
+        <div class="meta" id="recent-dir" style="margin:-6px 0 12px;word-break:break-all"></div>
+        <div id="recent"></div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<dialog id="yaml-dialog">
+  <h3>Recipe YAML</h3>
+  <pre class="log" id="yaml-text" style="max-height:60vh"></pre>
+  <div class="btns"><button id="yaml-close">Close</button></div>
+</dialog>
+
+<dialog id="start-dialog">
+  <h3>Start this brew remotely?</h3>
+  <p>This commits and starts the brew — the machine will dispense near-boiling water.</p>
+  <div class="summary" id="start-summary"></div>
+  <label class="field-label" for="start-name">Name this brew</label>
+  <input type="text" id="start-name" autocomplete="off">
+  <label class="check">
+    <input type="checkbox" id="start-ack">
+    <span>Water, cup and coffee are in place, and I can see the machine.</span>
+  </label>
+  <div class="btns">
+    <button id="start-cancel">Cancel</button>
+    <button class="danger" id="start-go" disabled>Start brewing</button>
+  </div>
+</dialog>
+
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+let params = {};          // current parameter state
+let planData = null;      // last plan from /api/plan
+let config = null;
+let pending = null;       // {file} when the start dialog was opened from a cached brew
+let pollTimer = null, logSince = 0;
+
+const POST = (path, body) => fetch(path, {
+  method: 'POST',
+  headers: {'Content-Type': 'application/json', 'X-XBloom-Local': '1'},
+  body: JSON.stringify(body || {}),
+}).then(async (r) => {
+  const data = await r.json().catch(() => ({error: r.statusText}));
+  if (!r.ok) throw new Error(data.error || r.statusText);
+  return data;
+});
+
+// --- parameters ------------------------------------------------------------
+function paramRow(row) {
+  const el = document.createElement('div');
+  el.className = 'param';
+  const dot = row.is_default ? '' : '<i class="changed" title="changed from default"></i>';
+  const unit = row.unit ? `<span class="unit">${row.unit}</span>` : '';
+  el.innerHTML = `<div class="name">${row.label}${unit}${dot}</div>`;
+  let input;
+  if (row.choices) {
+    input = document.createElement('select');
+    for (const c of row.choices) {
+      const o = document.createElement('option');
+      o.value = c; o.textContent = c; input.appendChild(o);
+    }
+    input.value = row.value;
+  } else {
+    input = document.createElement('input');
+    input.type = 'number';
+    if (row.lo !== null) input.min = row.lo;
+    if (row.hi !== null) input.max = row.hi;
+    if (row.step !== null) input.step = row.step;
+    input.value = row.value;
+  }
+  input.id = 'p-' + row.key;
+  const commit = () => {
+    const raw = input.value;
+    params[row.key] = row.choices && typeof row.choices[0] === 'string' ? raw : Number(raw);
+    refresh();
+  };
+  input.addEventListener('change', commit);
+  input.addEventListener('input', () => { clearTimeout(input._t); input._t = setTimeout(commit, 250); });
+  el.appendChild(input);
+  const hint = document.createElement('div');
+  hint.className = 'hint';
+  hint.textContent = row.hint;
+  el.appendChild(hint);
+  return el;
+}
+
+function renderParams(rows) {
+  const box = $('params');
+  const focused = document.activeElement && document.activeElement.id;
+  box.innerHTML = '';
+  rows.forEach((r) => box.appendChild(paramRow(r)));
+  if (focused && $(focused)) $(focused).focus();
+}
+
+// --- the plan --------------------------------------------------------------
+function renderPlan(p) {
+  planData = p;
+  $('recipe-name').textContent = p.name;
+  $('totals').innerHTML = [
+    ['dose', `${p.dose_g}`, 'g'],
+    ['ratio', `1:${p.ratio}`, ''],
+    ['water', `${p.total_ml}`, 'ml'],
+    ['grind', p.grind === 0 ? '<i>pre-ground</i>' : `${p.grind}`, ''],
+  ].map(([k, v, u]) => `<div class="total"><b>${v}</b><span>${k}${u ? ' · ' + u : ''}</span></div>`)
+   .join('');
+
+  const biggest = Math.max(...p.pours.map((x) => x.ml));
+  $('pours').innerHTML = p.pours.map((x, i) => `
+    <tr class="${i === 0 ? 'bloom' : ''}">
+      <td class="label">${x.label}</td>
+      <td class="ml">${x.ml}</td>
+      <td class="bar-cell"><span class="bar" style="width:${(x.ml / biggest * 100).toFixed(0)}%"></span></td>
+      <td>${x.temp_c} °C</td>
+      <td><span class="chip ${x.pattern}">${x.pattern}</span></td>
+      <td>${x.rpm || '<span class="muted">—</span>'}</td>
+      <td>${x.pause_s} s</td>
+    </tr>`).join('');
+
+  $('math').textContent =
+    `bloom ${p.bloom_ml} ml + ${p.n_main} × ${p.main_ml} ml = ${p.total_ml} ml  ·  ` +
+    `bloom ${p.bloom_x_dose}× dose (target ${p.bloom_target_x}×)  ·  ${p.filename}`;
+
+  const banners = [];
+  if (!p.valid) banners.push(`<div class="banner bad"><b>Invalid</b> ${p.error}</div>`);
+  if (p.oversize_ml) banners.push(
+    `<div class="banner warn"><b>${p.oversize_ml} ml pour</b> — over the ${p.max_pour_ml} ml the ` +
+    `app sends. The protocol splits it, but that frame shape is untested on hardware.</div>`);
+  $('banners').innerHTML = banners.join('');
+
+  const busy = isRunning();
+  $('load').disabled = !p.valid || busy;
+  $('start').disabled = !p.valid || busy;
+  $('action-note').textContent = busy
+    ? 'A run is in progress.'
+    : 'Loading only arms the machine — you approve on it.';
+}
+
+function query() {
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) if (v !== null && v !== undefined) q.set(k, v);
+  return q.toString();
+}
+
+async function refresh() {
+  const r = await fetch('/api/plan?' + query());
+  const p = await r.json();
+  if (p.error && !p.params) { $('banners').innerHTML = `<div class="banner bad">${p.error}</div>`; return; }
+  renderParams(p.rows);
+  renderPlan(p);
+}
+
+// --- recent ----------------------------------------------------------------
+async function loadRecent() {
+  const d = await (await fetch('/api/recent')).json();
+  $('recent-dir').textContent = d.dir;
+  if (!d.brews.length) { $('recent').innerHTML = '<div class="muted">No cached brews yet.</div>'; return; }
+  $('recent').innerHTML = d.brews.map((b) => `
+    <div class="brew-row">
+      <div><div class="file">${b.file}</div><div class="sum">${b.summary}</div></div>
+      <div class="age">${b.age}</div>
+      <div>
+        <button class="small" data-load="${b.file}" ${b.readable ? '' : 'disabled'}>Load</button>
+        <button class="small danger" data-start="${b.file}" ${b.readable ? '' : 'disabled'}>Start</button>
+      </div>
+    </div>`).join('');
+  $('recent').querySelectorAll('[data-load]').forEach((btn) =>
+    btn.addEventListener('click', () => go({file: btn.dataset.load}, false)));
+  $('recent').querySelectorAll('[data-start]').forEach((btn) =>
+    btn.addEventListener('click', () => openStart({file: btn.dataset.start})));
+}
+
+// --- running ---------------------------------------------------------------
+let currentRun = null;
+const isRunning = () => currentRun && !currentRun.done;
+
+async function go(body, start) {
+  try {
+    const d = await POST(start ? '/api/start' : '/api/load', body);
+    logSince = 0; $('run-log').textContent = '';
+    showRun(d.run);
+    poll();
+    loadRecent();
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+function showRun(run) {
+  currentRun = run;
+  $('run-panel').hidden = false;
+  const tag = $('run-tag');
+  if (!run.done) { tag.textContent = run.started_brew ? 'brewing' : 'loading'; tag.className = 'tag live'; }
+  else { tag.textContent = run.returncode === 0 ? 'finished' : `exit ${run.returncode}`; tag.className = 'tag done'; }
+  $('run-name').textContent = run.recipe;
+  $('run-meta').textContent = `${run.mode} · ${run.file} · ${run.elapsed}s`;
+  $('run-stop').disabled = run.done;
+  if (planData) renderPlan(planData);
+}
+
+async function poll() {
+  const d = await (await fetch('/api/run?since=' + logSince)).json();
+  if (!d.run) return;
+  if (d.run.lines.length) {
+    const log = $('run-log');
+    const atBottom = log.scrollTop + log.clientHeight >= log.scrollHeight - 24;
+    log.textContent += d.run.lines.join('\n') + '\n';
+    if (atBottom) log.scrollTop = log.scrollHeight;
+  }
+  logSince = d.run.next;
+  showRun(d.run);
+  clearTimeout(pollTimer);
+  if (!d.run.done) pollTimer = setTimeout(poll, 1000);
+}
+
+// --- the start gate --------------------------------------------------------
+function openStart(from) {
+  pending = from || {};
+  const name = from && from.file
+    ? (planData && from.name) || from.file.replace(/\.yaml$/, '')
+    : planData.name;
+  $('start-name').value = name;
+  $('start-ack').checked = false;
+  $('start-go').disabled = true;
+  $('start-summary').textContent = from && from.file
+    ? from.file
+    : `${planData.dose_g} g · 1:${planData.ratio} · ${planData.total_ml} ml · ` +
+      `${planData.pours.length} pours · ${planData.grind === 0 ? 'pre-ground' : 'grind ' + planData.grind}`;
+  $('start-dialog').showModal();
+}
+
+$('start-ack').addEventListener('change', (e) => { $('start-go').disabled = !e.target.checked; });
+$('start-cancel').addEventListener('click', () => $('start-dialog').close());
+$('start-go').addEventListener('click', () => {
+  const body = {acknowledge: true, name: $('start-name').value.trim()};
+  if (pending && pending.file) body.file = pending.file; else body.params = params;
+  $('start-dialog').close();
+  go(body, true);
+});
+
+$('load').addEventListener('click', () => go({params}, false));
+$('start').addEventListener('click', () => openStart(null));
+$('reset').addEventListener('click', () => { params = {...config.defaults}; refresh(); });
+$('show-yaml').addEventListener('click', () => {
+  $('yaml-text').textContent = planData.yaml;
+  $('yaml-dialog').showModal();
+});
+$('yaml-close').addEventListener('click', () => $('yaml-dialog').close());
+$('run-stop').addEventListener('click', async () => {
+  await POST('/api/run/stop', {});
+  poll();
+});
+
+// --- boot -----------------------------------------------------------------
+(async function init() {
+  config = await (await fetch('/api/config')).json();
+  params = {...config.defaults};
+  $('meta').textContent = `machine ${config.address} · telemetry ${config.timeout}s` +
+    (config.debug ? ' · frame log on' : '');
+  await refresh();
+  await loadRecent();
+  await poll();
+})();
+</script>
+</body>
+</html>
