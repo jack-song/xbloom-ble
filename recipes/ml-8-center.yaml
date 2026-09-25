@@ -1,0 +1,25 @@
+# ML-8 Center — ML-10 Center scaled down to an 8 g dose (×0.8 on every pour).
+#
+# grind: 0 = no-grind (the grinder is skipped; put already-ground coffee in the
+# dripper yourself).
+#
+# dose_g 8 * ratio 17 = 136 ml, which matches the sum of pours
+# (28 + 36 + 36 + 36 = 136), so the ratio check passes.
+# Temps, patterns, pauses, RPM and flow rate are unchanged from ML-10 Center —
+# only the water volumes are scaled.
+name: ML-8 Center
+# 18 g is the maximum the xBloom app lets you set.
+dose_g: 8
+# 0 = no-grind / pre-ground (1–80 otherwise; lower is finer).
+grind: 0
+ratio: 17
+pours:
+  # Max pause_s is 99s.
+  # app also offers special non-numeric RT (room temp) and BP (boiling point) settings, outside this numeric range.
+  # 60–120 in 10-RPM steps; 0 (no agitation) is allowed only for center pours.
+  - {label: Bloom,  ml: 28, temp_c: 91, pattern: center, pause_s: 50, rpm: 0, flow_ml_s: 3.5, agitation: false}
+  # Max ml is 127.
+  - {label: Pour 1, ml: 36, temp_c: 91, pattern: spiral, pause_s: 20, rpm: 60, flow_ml_s: 3.5, agitation: false}
+  # Flow rate in ml/s (3.0–3.5, 0.1 steps).
+  - {label: Pour 2, ml: 36, temp_c: 91, pattern: center, pause_s: 20, rpm: 0, flow_ml_s: 3.5, agitation: false}
+  - {label: Pour 3, ml: 36, temp_c: 91, pattern: center, pause_s: 20, rpm: 0, flow_ml_s: 3.5, agitation: false}

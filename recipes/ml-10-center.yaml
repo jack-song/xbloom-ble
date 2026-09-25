@@ -1,0 +1,23 @@
+# ML-10 Center — the ML-10 recipe, brewed pre-ground with four center pours.
+#
+# grind: 0 = no-grind (the grinder is skipped; put already-ground coffee in the
+# dripper yourself).
+#
+# dose_g 10 * ratio 17 = 170 ml, which matches the sum of pours
+# (35 + 45 + 45 + 45 = 170), so the ratio check passes.
+name: ML-10 Center
+# 18 g is the maximum the xBloom app lets you set.
+dose_g: 10
+# 0 = no-grind / pre-ground (1–80 otherwise; lower is finer).
+grind: 0
+ratio: 17
+pours:
+  # Max pause_s is 99s.
+  # app also offers special non-numeric RT (room temp) and BP (boiling point) settings, outside this numeric range.
+  # 60–120 in 10-RPM steps; 0 (no agitation) is allowed only for center pours.
+  - {label: Bloom,  ml: 35, temp_c: 91, pattern: center, pause_s: 50, rpm: 0, flow_ml_s: 3.5, agitation: false}
+  # Max ml is 127.
+  - {label: Pour 1, ml: 45, temp_c: 91, pattern: spiral, pause_s: 20, rpm: 60, flow_ml_s: 3.5, agitation: false}
+  # Flow rate in ml/s (3.0–3.5, 0.1 steps).
+  - {label: Pour 2, ml: 45, temp_c: 91, pattern: center, pause_s: 20, rpm: 0, flow_ml_s: 3.5, agitation: false}
+  - {label: Pour 3, ml: 45, temp_c: 91, pattern: center, pause_s: 20, rpm: 0, flow_ml_s: 3.5, agitation: false}

@@ -1,0 +1,32 @@
+# Volume probe — a DIAGNOSTIC recipe, not a drinking recipe.
+#
+# Purpose: find out whether the machine honours the per-pour `ml` we load, after
+# ML-10 Center asked for 35/45/45/45 (=170 ml) and the machine delivered
+# 50/65/65/60 (=240 ml).
+#
+# Everything is deliberately uniform and boring so exactly one variable moves:
+#   * four identical 25 ml pours -> 100 ml total
+#   * all `center`, so rpm is 0 everywhere and the "rpm is dropped after the first
+#     pour" encoder behaviour can't muddy the result
+#   * identical 20 s pauses, so the pause handling is readable off the same trace
+#
+# dose_g 10 * ratio 10 = 100 ml = sum of pours, so the ratio byte is 0x64 — a value
+# the app's own captures use for 1:10, i.e. known-good rather than exotic.
+#
+# Read the result off the telemetry `water_g` trace (it is cumulative ml dispensed):
+#   ~100 ml -> the machine honours our volumes; the 240 ml problem is elsewhere.
+#   ~141 ml -> it reads our bytes but scales them ~1.41x (the same factor as before).
+#   ~240 ml -> it ignores the loaded recipe entirely and brews its own program.
+# The three outcomes are far enough apart that no two can be confused.
+#
+# Run it as:  xbloom -v brew recipes/test-volume-probe.yaml --debug
+name: Volume Probe
+dose_g: 10
+# 0 = no-grind / pre-ground. Put 10 g of already-ground coffee in the dripper.
+grind: 0
+ratio: 10
+pours:
+  - {label: P1, ml: 25, temp_c: 91, pattern: center, pause_s: 20, rpm: 0, flow_ml_s: 3.5}
+  - {label: P2, ml: 25, temp_c: 91, pattern: center, pause_s: 20, rpm: 0, flow_ml_s: 3.5}
+  - {label: P3, ml: 25, temp_c: 91, pattern: center, pause_s: 20, rpm: 0, flow_ml_s: 3.5}
+  - {label: P4, ml: 25, temp_c: 91, pattern: center, pause_s: 20, rpm: 0, flow_ml_s: 3.5}
