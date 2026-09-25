@@ -156,7 +156,7 @@ async def _cmd_brew(args) -> int:
             if getattr(args, "start", False):
                 print(START_BANNER)
                 print()
-                brewing = await client.start()
+                brewing = await client.start(on_event=_record)
                 _record(brewing)
                 # The machine checks water/beans right after commit. If it refused,
                 # start() already consumed that one status frame (the telemetry stream

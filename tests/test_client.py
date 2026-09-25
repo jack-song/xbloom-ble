@@ -19,13 +19,17 @@ from xbloom_ble.recipe import Recipe
 # ── real-shape frames (0x57 status = 580207571f10000000c1<state>000000<crc>) ──
 ARMED = "580207571f10000000c11f000000ce5e"       # 0x1f
 STARTING = "580207571f10000000c122000000b399"    # 0x22
+BREWING_23 = "580207571f10000000c1230000000885"  # 0x23 — mid-pour sub-state (real capture)
+BREWING_10 = "580207571f10000000c1100000000000"  # 0x10 — live pour (dummy crc)
 READY = "580207571f10000000c12400000029d2"       # 0x24  (coffee-ready beep, terminal)
 IDLE = "580207571f10000000c1010000002d33"        # 0x01
 NO_WATER = "580207571f10000000c10c000000a2b8"    # 0x0c
 NO_BEANS = "580207571f10000000c10f0000000000"    # 0x0f  (dummy crc; parser ignores it)
 SLOTS_SAVED = "580207571f10000000c1250000000000"  # 0x25
+AUTO_MODE = "580207571f10000000c1410000000000"   # 0x41 — AUTO mode (dial owns the screen)
 ACK_42 = "580207421f0c000000c1c5c2"              # commit echo
 WATER35 = "5802074b9e10000000c100b8084759b4"     # 0x4b water 35.0 g
+WATER0 = "5802074b9e10000000c100000000fd32"      # 0x4b water 0.0 g (real capture)
 COFFEE12 = "580207155010000000c19eef4141ceba"    # 0x15 coffee 12.12 g
 
 RECIPE = Recipe.from_dict({
@@ -176,6 +180,34 @@ def test_start_nudges_with_0x46_when_stalled():
     ev = run(c.start(settle=0.05))
     assert 0x46 in _cmds(fake)
     assert ev.state_name == "starting"
+
+
+@pytest.mark.parametrize("frame,name", [(BREWING_23, "brewing"), (BREWING_10, "brewing")])
+def test_start_treats_every_brewing_code_as_acted(frame, name):
+    """0x10/0x23/0x3b all mean "brewing". Any of them after commit means the brew is
+    already running, so 0x46 must NOT be sent — on hardware it aborts back to armed."""
+    fake = FakeBleak()
+    fake.script[0x42] = [ACK_42, frame]
+    c = _client(fake)
+    ev = run(c.start(settle=0.5))
+    assert ev.state_name == name
+    assert 0x46 not in _cmds(fake), "0x46 into a running brew aborts it"
+
+
+def test_start_refuses_to_nudge_once_machine_has_left_pre_brew(caplog):
+    """Even when no recognised state arrives inside `settle`, the last status seen
+    still gates the nudge. Reproduces the 2026-08-28 capture: commit → 0x23 brewing,
+    the drain times out, and the old code fired 0x46 and aborted the brew at 22 ml."""
+    fake = FakeBleak()
+    fake.script[0x42] = []          # nothing lands on the queue -> the drain times out
+    c = _client(fake)
+    # ...but the 0x23 did arrive earlier, and _last_status recorded it off the notify
+    # callback. That is the only evidence left that the machine is already brewing.
+    c._on_notify(None, bytearray(bytes.fromhex(BREWING_23)))
+    with caplog.at_level("INFO", logger="xbloom_ble"):
+        run(c.start(settle=0.02))
+    assert 0x46 not in _cmds(fake)
+    assert any("NOT sending 0x46" in r.getMessage() for r in caplog.records)
 
 
 def test_start_returns_refusal_state():
@@ -331,3 +363,106 @@ def test_disconnect_resets_session():
     run(c.open_session())
     run(c.disconnect())
     assert not c._session_active and not c._subscribed and not c._consuming
+
+
+# ── diagnostics: TX hex logging + operating-mode report ────────────────────
+def test_every_command_write_is_hex_logged(caplog):
+    """``--debug`` must capture BOTH directions. RX frames were always logged in
+    hex; TX frames used to log only their opcode, which made it impossible to tell
+    a machine that ignored our bytes from a client that sent the wrong ones."""
+    fake = FakeBleak()
+    c = _client(fake)
+    with caplog.at_level("DEBUG", logger="xbloom_ble"):
+        run(c.load_recipe(RECIPE, settle=0.01))
+    logged = "\n".join(r.getMessage() for r in caplog.records)
+    for frame in fake.writes:
+        assert frame.hex() in logged, f"frame cmd=0x{frame[3]:02x} not hex-logged"
+
+
+def test_load_recipe_reports_auto_mode_before_staging(caplog):
+    """A 0x41 seen before anything is staged means AUTO mode — the on-machine A/B/C
+    dial selector — so approving on the dial may brew the preset, not our recipe.
+
+    The check is on the *pre-staging* report, not on ``observed_mode()`` afterwards:
+    that is a live reading of the last status seen, which by the end of a successful
+    load is ``armed`` (0x1f) on any machine, in either mode.
+    """
+    fake = FakeBleak()
+    fake.script[0x56] = [AUTO_MODE]   # status query answers "AUTO"
+    c = _client(fake)
+    with caplog.at_level("DEBUG", logger="xbloom_ble"):
+        run(c.load_recipe(RECIPE, settle=0.01))
+    msgs = [r.getMessage() for r in caplog.records]
+    assert any("mode≈auto" in m for m in msgs), msgs
+    assert any(r.levelname == "WARNING" and "AUTO mode" in r.getMessage()
+               for r in caplog.records)
+
+
+def test_load_recipe_reports_pro_mode_when_idle(caplog):
+    fake = FakeBleak()
+    fake.script[0x56] = [IDLE]
+    c = _client(fake)
+    with caplog.at_level("DEBUG", logger="xbloom_ble"):
+        run(c.load_recipe(RECIPE, settle=0.01))
+    msgs = [r.getMessage() for r in caplog.records]
+    assert any("mode≈pro" in m for m in msgs), msgs
+    assert not any(r.levelname == "WARNING" and "AUTO mode" in r.getMessage()
+                   for r in caplog.records)
+
+
+def test_observed_mode_is_none_before_any_status():
+    assert XBloomClient("AA:BB:CC:DD:EE:FF").observed_mode() is None
+
+
+# ── 0x46 must never interrupt a brew that is physically pouring ────────────
+def test_start_does_not_nudge_while_water_is_flowing(caplog):
+    """Reproduces the 2026-09-11 capture: the machine pours the bloom while still
+    reporting a pre-brew state byte, both drains time out, and the old code fired 0x46
+    into a running brew — halting it mid-bloom until a human pressed the machine.
+
+    The state byte is what the machine SAYS; the scale is what is physically true.
+    """
+    fake = FakeBleak()
+    fake.script[0x42] = []                 # no recognised state -> the drain times out
+    c = _client(fake)
+    c._on_notify(None, bytearray(bytes.fromhex(ARMED)))    # last status = pre-brew
+    orig = c._write_cmd
+
+    async def pour_after_commit(frame, what):
+        await orig(frame, what)
+        if frame[3] == 0x42:               # commit -> the machine starts pouring
+            for hx in (WATER0, WATER35):
+                c._on_notify(None, bytearray(bytes.fromhex(hx)))
+    c._write_cmd = pour_after_commit
+
+    with caplog.at_level("INFO", logger="xbloom_ble"):
+        run(c.start(settle=0.02))
+    assert 0x46 not in _cmds(fake), "0x46 into a pouring brew halts it mid-bloom"
+    assert any("the brew IS running" in r.getMessage() for r in caplog.records)
+
+
+def test_start_still_nudges_when_no_water_moved():
+    """The nudge is what a genuinely stalled machine needs — a dry scale must not
+    suppress it, or remote start stops working on the firmwares that require it."""
+    fake = FakeBleak()
+    fake.script[0x42] = []
+    fake.script[0x46] = [STARTING]
+    c = _client(fake)
+    c._on_notify(None, bytearray(bytes.fromhex(ARMED)))
+    for _ in range(5):                     # scale streaming a steady zero
+        c._on_notify(None, bytearray(bytes.fromhex(WATER0)))
+    ev = run(c.start(settle=0.02))
+    assert 0x46 in _cmds(fake)
+    assert ev.state_name == "starting"
+
+
+def test_water_window_resets_at_commit():
+    """A previous brew's total must not read as this brew's pour."""
+    fake = FakeBleak()
+    c = _client(fake)
+    c._on_notify(None, bytearray(bytes.fromhex(WATER35)))   # 35 g left over
+    assert c.water_dispensed() == 0.0                       # one sample: no spread
+    c._on_notify(None, bytearray(bytes.fromhex(WATER0)))
+    assert c.water_dispensed() == pytest.approx(35.0, abs=0.1)
+    c.reset_water_window()
+    assert c.water_dispensed() is None

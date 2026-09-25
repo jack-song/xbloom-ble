@@ -50,12 +50,29 @@ STATE_ARMED = 0x1F
 # and needs the 0x46 start frame.
 STATE_STARTING = 0x22
 STATE_BREWING = 0x3B
+STATE_AWAITING_CONFIRM = 0x1E
+# The machine signals "a brew is underway" with any of THREE state codes depending on
+# firmware and phase — telemetry.STATE_NAMES maps all three to "brewing": 0x10 (live
+# pour), 0x23 (mid-pour sub-state) and 0x3b. start() must treat every one of them as
+# "already going", because sending 0x46 into a running brew aborts it back to armed.
+BREWING_STATES = frozenset({0x10, 0x23, STATE_BREWING})
+# States the machine can still legitimately be nudged out of with 0x46.
+PRE_BREW_STATES = frozenset({STATE_ARMED, STATE_AWAITING_CONFIRM})
+# Grams the scale must climb after commit before we treat "a brew is running" as
+# proven. A real pour moves ~3.5 g/s, so this is a fraction of a second of water;
+# it only has to clear scale noise and the cup being nudged.
+WATER_FLOWING_G = 1.0
 # Machine-refused states (it checks water/beans right after commit, before pouring).
 STATE_NO_WATER = 0x0C
 STATE_NO_BEANS = 0x0F
 # Slot-save status states (see telemetry): 0x43 saving, 0x25 saved, 0x01 idle.
 STATE_IDLE = 0x01
 STATE_SLOTS_SAVED = 0x25
+# Operating-mode tell (see protocol.build_set_mode): the machine parks in status 0x41
+# while AUTO mode — the on-machine A/B/C dial selector — owns the screen, and in 0x01
+# (idle) in PRO mode. NOTE 0x41 is also what telemetry maps to "complete", so this code
+# only means "AUTO" when seen *before* anything has been staged. See observed_mode().
+STATE_AUTO_MODE = 0x41
 
 
 class XBloomError(RuntimeError):
@@ -104,6 +121,15 @@ class XBloomClient:
         self._subscribed = False       # ffe2 notify subscription is active
         self._session_active = False   # hold the subscription across operations
         self._consuming = False        # an operation wants frames queued right now
+        # Last non-heartbeat status frame seen, recorded straight off the notify
+        # callback (not the queue) so reading it never disturbs a pending drain.
+        self._last_status: StatusEvent | None = None
+        # Low/high water reading seen since the window was last reset. The spread is
+        # the only PHYSICAL evidence of whether the machine is pouring; the state byte
+        # is just what the machine says about itself, and it has been observed
+        # reporting a pre-brew state while water was already flowing.
+        self._water_lo: float | None = None
+        self._water_hi: float | None = None
 
     # ------------------------------------------------------------------
     # Connection
@@ -136,6 +162,7 @@ class XBloomClient:
         self._subscribed = False
         self._session_active = False
         self._consuming = False
+        self._last_status = None
 
     async def open_session(self, *, settle: float = 0.3) -> None:
         """Register as an app-style session so the machine shows it's **connected**.
@@ -158,7 +185,7 @@ class XBloomClient:
         self._session_active = True
         await self._ensure_subscribed()
         log.info("→ a4 (open session — machine shows connected)")
-        await self._client.write_gatt_char(CHAR_COMMAND, build_session_start(), response=False)
+        await self._write_cmd(build_session_start(), "a4 open session")
         await asyncio.sleep(settle)
 
     async def close_session(self) -> None:
@@ -185,11 +212,59 @@ class XBloomClient:
         log.debug("← %s%s", raw.hex(), f"  [{event.state_name}]" if event is not None else "")
         if event is None:
             return
+        if event.state is not None and not event.is_heartbeat:
+            self._last_status = event
+        if event.water_g is not None:
+            lo, hi = self._water_lo, self._water_hi
+            self._water_lo = event.water_g if lo is None else min(lo, event.water_g)
+            self._water_hi = event.water_g if hi is None else max(hi, event.water_g)
         # Only queue while an operation is consuming. During an idle held session the
         # machine streams status continuously (heartbeats, scale, idle-state frames) —
         # dropping those here keeps the queue bounded instead of growing unbounded.
         if self._consuming:
             self._notif_queue.put_nowait(event)
+
+    async def _write_cmd(self, frame: bytes, what: str) -> None:
+        """Write one command frame to ffe1, logging its full hex at DEBUG.
+
+        Every outgoing frame goes through here so ``--debug`` captures **both** sides
+        of the conversation: :meth:`_on_notify` logs each ``←`` notification in hex,
+        this logs each ``→`` write. Without the payload in the log it is impossible to
+        tell after the fact whether the machine ignored what we sent or we sent the
+        wrong bytes — which is exactly the question a brew that doesn't match its
+        recipe raises.
+        """
+        assert self._client is not None
+        log.debug("→ %s  [%s]", frame.hex(), what)
+        await self._client.write_gatt_char(CHAR_COMMAND, frame, response=False)
+
+    def reset_water_window(self) -> None:
+        """Forget the water readings seen so far, so :meth:`water_dispensed` measures
+        from here. Called before commit so a previous brew's totals can't leak in."""
+        self._water_lo = self._water_hi = None
+
+    def water_dispensed(self) -> float | None:
+        """Grams dispensed since :meth:`reset_water_window`, or ``None`` if the scale
+        hasn't reported. A spread rather than a delta-from-baseline, so it works
+        without knowing what the cup weighed when the window opened."""
+        if self._water_lo is None or self._water_hi is None:
+            return None
+        return self._water_hi - self._water_lo
+
+    def observed_mode(self) -> str | None:
+        """Best guess at the machine's operating mode from the last status frame seen.
+
+        Returns ``"auto"`` (status ``0x41`` — the on-machine A/B/C dial selector owns
+        the screen), ``"pro"``, or ``None`` if no status has arrived yet.
+
+        **Advisory only.** ``0x41`` is also the code telemetry maps to ``complete``,
+        so a ``0x41`` seen just after a brew is not evidence of AUTO mode. Where it is
+        meaningful is *before* anything has been staged — see :meth:`load_recipe`.
+        """
+        ev = self._last_status
+        if ev is None or ev.state is None:
+            return None
+        return "auto" if ev.state == STATE_AUTO_MODE else "pro"
 
     async def _ensure_subscribed(self) -> None:
         """Subscribe to ffe2 status notifications (idempotent)."""
@@ -281,14 +356,30 @@ class XBloomClient:
             # 1. Session start + status handshake, then let the machine settle out of
             #    its transitional post-connect state before staging.
             log.info("→ a4 (session start) + 0x56 (handshake), then settle %.1fs", settle)
-            await self._client.write_gatt_char(CHAR_COMMAND, a4, response=False)
+            await self._write_cmd(a4, "a4 session start")
             await asyncio.sleep(0.5)
-            await self._client.write_gatt_char(CHAR_COMMAND, build_status_query(), response=False)
+            await self._write_cmd(build_status_query(), "0x56 status query")
             await asyncio.sleep(settle)
+            # 1b. Report what the machine says it is doing BEFORE we stage anything.
+            #     This is the one moment when status 0x41 unambiguously means AUTO mode
+            #     (the on-machine A/B/C dial selector) rather than "brew complete" — no
+            #     brew has run on this session yet. It matters because a machine whose
+            #     dial owns the screen may brew ITS preset when the human approves,
+            #     not the recipe we are about to load.
+            pre = self._last_status
+            log.info("machine status before staging: %s (mode≈%s)",
+                     pre.state_name if pre is not None else "none seen",
+                     self.observed_mode() or "unknown")
+            if self.observed_mode() == "auto":
+                log.warning(
+                    "machine is in AUTO mode (status 0x41 — the on-machine A/B/C dial "
+                    "selector). Approving on the dial may brew the SELECTED PRESET "
+                    "instead of the recipe being loaded."
+                )
             # 2. Dose, temps, pours — the pours frame drives the machine to armed.
             for i, frame in enumerate(load_frames):
                 log.info("→ load frame %d/%d (cmd=0x%02x)", i + 2, len(load_frames) + 1, frame[3])
-                await self._client.write_gatt_char(CHAR_COMMAND, frame, response=False)
+                await self._write_cmd(frame, f"load frame cmd=0x{frame[3]:02x}")
                 await asyncio.sleep(0.4)
             armed = await self._drain_until_state(STATE_ARMED, self.ack_timeout)
             log.info("recipe loaded — machine armed (awaiting human approval)")
@@ -299,7 +390,9 @@ class XBloomClient:
     # ------------------------------------------------------------------
     # Starting / cancelling a brew  (explicit — dispenses hot water)
     # ------------------------------------------------------------------
-    async def _drain_for_any(self, states: set[int], timeout: float) -> StatusEvent | None:
+    async def _drain_for_any(self, states: set[int], timeout: float,
+                             on_event: Callable[[StatusEvent], None] | None = None
+                             ) -> StatusEvent | None:
         """Return the first status event whose state is in ``states``, or ``None`` on
         timeout. Skips heartbeats; consumes intervening frames."""
         loop = asyncio.get_event_loop()
@@ -312,13 +405,16 @@ class XBloomClient:
                 event = await asyncio.wait_for(self._notif_queue.get(), timeout=remaining)
             except asyncio.TimeoutError:
                 return None
+            if on_event is not None:
+                on_event(event)
             if event.is_heartbeat:
                 continue
             log.debug("status: %s", event.state_name)
             if event.state in states:
                 return event
 
-    async def start(self, *, settle: float = 8.0) -> StatusEvent:
+    async def start(self, *, settle: float = 8.0,
+                    on_event: Callable[[StatusEvent], None] | None = None) -> StatusEvent:
         """Start the currently-armed brew (call :meth:`load_recipe` first).
 
         Sends commit (``0x42``) and then **adapts to the machine**: after commit some
@@ -335,6 +431,11 @@ class XBloomClient:
         Returns best-effort once brewing/grinding is seen; never raises just because a
         state wasn't observed (the caller streams telemetry for the live state).
 
+        ``on_event`` receives every frame drained here. Without it the commit-to-brewing
+        window — up to 13 s, during which the bloom is already pouring — is consumed
+        and discarded, so it never reaches the telemetry log. That blind spot is
+        precisely where remote-start faults occur, so the CLI passes its recorder in.
+
         ⚠️ This physically dispenses near-boiling water. Only call it when the machine
         is ready (water/beans/cup in) and someone intends to brew.
         """
@@ -344,20 +445,46 @@ class XBloomClient:
         await self._start_notify()
         try:
             log.info("→ 0x42 commit (start the brew)")
-            await self._client.write_gatt_char(CHAR_COMMAND, build_commit(), response=False)
+            self.reset_water_window()          # measure pouring from the commit onward
+            await self._write_cmd(build_commit(), "0x42 commit")
             # After commit the machine either acts (auto-proceeds to grinding/brewing, or
             # refuses with no-water/no-beans), or just sits in awaiting-confirm. In ANY
             # "acted" case we must NOT send 0x46 — sending it into a running brew aborts
             # it, and it's pointless on a refusal. Only nudge with 0x46 if it stalls.
-            acted = {STATE_STARTING, STATE_BREWING, STATE_NO_WATER, STATE_NO_BEANS}
-            ev = await self._drain_for_any(acted, settle)
+            acted = {STATE_STARTING, STATE_NO_WATER, STATE_NO_BEANS} | BREWING_STATES
+            ev = await self._drain_for_any(acted, settle, on_event)
             if ev is not None:
                 log.info("machine acted on commit (%s) — not sending 0x46", ev.state_name)
                 return ev
+            # Not seeing an "acted" state is NOT proof the machine is idle — it only
+            # means we didn't recognise what we saw. Before nudging, check the last
+            # status frame that actually arrived: if the machine has already left the
+            # pre-brew states, a 0x46 would abort a brew that is running. (Observed on
+            # hardware: commit → 0x23 brewing → 0x46 → back to 0x1f armed, mid-pour.)
+            # Physical evidence first. The machine has been seen pouring while still
+            # reporting a pre-brew state byte (2026-09-11: commit -> bloom pours to
+            # 21.3 g -> both drains time out -> 0x46 -> brew halts mid-bloom until a
+            # human presses the machine). Water in the cup settles it: if the scale
+            # climbed while we were waiting, a brew is running, whatever the state
+            # byte claims, and a nudge would interrupt it.
+            poured = self.water_dispensed()
+            if poured is not None and poured >= WATER_FLOWING_G:
+                log.info("scale rose %.1f g since commit — the brew IS running; "
+                         "NOT sending 0x46", poured)
+                return self._last_status or StatusEvent(
+                    state=STATE_BREWING, state_name="brewing", raw=b"")
+            last = self._last_status
+            if last is not None and last.state not in PRE_BREW_STATES:
+                log.info(
+                    "machine is in '%s' (0x%02x) — NOT sending 0x46; it has left the "
+                    "pre-brew states and the nudge would abort the brew",
+                    last.state_name, last.state,
+                )
+                return last
             # It stalled in awaiting-confirm — nudge it with the start frame.
             log.info("machine waiting in confirm — → 0x46 start")
-            await self._client.write_gatt_char(CHAR_COMMAND, build_start(), response=False)
-            ev = await self._drain_for_any(acted, 5.0)
+            await self._write_cmd(build_start(), "0x46 start")
+            ev = await self._drain_for_any(acted, 5.0, on_event)
             if ev is not None:
                 log.info("brew started (%s)", ev.state_name)
                 return ev
@@ -381,7 +508,7 @@ class XBloomClient:
         if self._client is None or not self._client.is_connected:
             raise XBloomError("not connected")
         log.info("→ 0x47 cancel (aborting brew)")
-        await self._client.write_gatt_char(CHAR_COMMAND, build_cancel(), response=False)
+        await self._write_cmd(build_cancel(), "0x47 cancel")
 
     async def save_slots(
         self,
@@ -429,14 +556,10 @@ class XBloomClient:
             #    PRO mode: AUTO mode (the on-machine A/B/C selector) parks the machine in
             #    status 0x41 and rejects writes (RETRY); PRO mode drops it to 0x01 (idle),
             #    where saves land. Sending PRO is what makes the idle wait below reliable.
-            await self._client.write_gatt_char(
-                CHAR_COMMAND, build_session_start(), response=False
-            )
+            await self._write_cmd(build_session_start(), "a4 session start")
             if ensure_pro:
                 log.info("→ set PRO mode (slot writes require it)")
-                await self._client.write_gatt_char(
-                    CHAR_COMMAND, build_set_mode(pro=True), response=False
-                )
+                await self._write_cmd(build_set_mode(pro=True), "set PRO mode")
             try:
                 await self._drain_until_state(STATE_IDLE, self.ack_timeout)
             except XBloomError:
@@ -447,7 +570,7 @@ class XBloomClient:
             #    acks each with a c2d204 notify; it stores the set once complete.
             for i, frame in enumerate(frames):
                 log.info("→ save slot %s (scale=%s)", "ABC"[i], scales[i])
-                await self._client.write_gatt_char(CHAR_COMMAND, frame, response=False)
+                await self._write_cmd(frame, f"save slot {'ABC'[i]}")
                 await asyncio.sleep(0.5)
 
             # 3. Confirm the save: the machine reports 0x25 (slots_saved). If it
@@ -459,9 +582,7 @@ class XBloomClient:
             #    ready to pick on the dial (that's how they're brewed).
             if end_in_auto:
                 log.info("→ back to AUTO mode (presets ready on the dial)")
-                await self._client.write_gatt_char(
-                    CHAR_COMMAND, build_set_mode(pro=False), response=False
-                )
+                await self._write_cmd(build_set_mode(pro=False), "set AUTO mode")
                 await asyncio.sleep(0.3)
         finally:
             await self._stop_notify()
