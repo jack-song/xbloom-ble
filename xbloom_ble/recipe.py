@@ -23,8 +23,11 @@ YAML schema
       - {label: Bloom,  ml: 35,  temp_c: 90, pattern: spiral, pause_s: 40, rpm: 100, flow_ml_s: 3.0}
       - {label: Pour 1, ml: 115, temp_c: 90, pattern: spiral, pause_s: 5,  rpm: 100, flow_ml_s: 3.0}
 
-Patterns: ``spiral``, ``ring``, ``center``. Set ``agitation: true`` (only valid
-with ``spiral``) for an agitated bloom. The metadata fields (``dripper``, ``kind``,
+Patterns: ``spiral``, ``ring``, ``center`` — where the water lands. Vibration of the
+dripper holder is a separate, independent pair of per-pour flags that works with any
+pattern: ``agitation: true`` (alias ``vibrate_after``) shakes AFTER the pour, e.g. an
+agitated bloom, and ``vibrate_before: true`` shakes BEFORE it. Both default to off.
+The metadata fields (``dripper``, ``kind``,
 ``water_ml``, ``hot_water_ml``, ``ice_g``, ``time``, ``note``, and per-pour
 ``label``) are optional context that round-trips through YAML but never reaches
 the machine.
@@ -54,7 +57,14 @@ class Pour:
     ml: int
     temp_c: int
     pattern: str = "spiral"
+    #: Shake the dripper holder AFTER this pour (wire byte 3, bit 1). Named for the
+    #: app's "agitation after bloom"; the vendor cloud schema calls the same thing
+    #: ``isEnableVibrationAfter``. ``vibrate_after`` is accepted as an alias on input.
     agitation: bool = False
+    #: Shake the dripper holder BEFORE this pour (wire byte 3, bit 0) — the vendor's
+    #: ``isEnableVibrationBefore``. Independent of ``pattern``: this used to be welded
+    #: on for every ``center`` pour and could not be turned off. Defaults to off.
+    vibrate_before: bool = False
     pause_s: int = 0
     rpm: int = 0
     flow_ml_s: float = 3.0
@@ -68,7 +78,8 @@ class Pour:
             "ml": self.ml,
             "temp": self.temp_c,
             "pattern": self.pattern,
-            "agitation": self.agitation,
+            "vibrate_before": self.vibrate_before,
+            "vibrate_after": self.agitation,
             "pause": self.pause_s,
             "rpm": self.rpm,
             "flow": self.flow_ml_s,
@@ -88,6 +99,9 @@ class Pour:
             flow_ml_s=float(self.flow_ml_s),
             agitation=bool(self.agitation),
         )
+        # Emitted only when set, so recipes that never touch it round-trip unchanged.
+        if self.vibrate_before:
+            d["vibrate_before"] = True
         return d
 
 
@@ -148,7 +162,8 @@ class Recipe:
                         ml=rp["ml"],
                         temp_c=rp["temp_c"],
                         pattern=rp.get("pattern", "spiral"),
-                        agitation=bool(rp.get("agitation", False)),
+                        agitation=bool(rp.get("vibrate_after", rp.get("agitation", False))),
+                        vibrate_before=bool(rp.get("vibrate_before", False)),
                         pause_s=rp.get("pause_s", 0),
                         rpm=rp.get("rpm", 0),
                         flow_ml_s=rp.get("flow_ml_s", 3.0),
@@ -254,11 +269,12 @@ class Recipe:
 
         total_ml = 0
         for i, p in enumerate(self.pours, start=1):
-            if (p.pattern, bool(p.agitation)) not in PATTERN_CODES:
-                valid = sorted({pat for pat, _ in PATTERN_CODES})
+            # Pattern (byte 2) and vibration (byte 3) are INDEPENDENT — any pattern
+            # may carry either vibration flag, so only the pattern name is checked.
+            if p.pattern not in PATTERN_CODES:
                 errors.append(
-                    f"pour #{i}: pattern/agitation ({p.pattern!r}, {p.agitation}) "
-                    f"not in known set {valid} (agitation only valid with 'spiral')"
+                    f"pour #{i}: pattern {p.pattern!r} not in known set "
+                    f"{sorted(PATTERN_CODES)}"
                 )
             # A pour over 127 ml is auto-split by the protocol — that is fine,
             # not an error. ml just needs to be ≥1 and fit a sane upper bound.

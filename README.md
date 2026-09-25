@@ -388,7 +388,8 @@ Per-pour fields (ranges are **firm — per xBloom Studio specs**):
 | `ml`        | Water volume for this pour (≥1 ml). A pour over 127 ml is auto-split by the protocol — not an error. |
 | `temp_c`    | Water temperature (40–95 °C, 1 °C steps).                       |
 | `pattern`   | `spiral`, `ring`, or `center`.                                 |
-| `agitation` | `true` only with `spiral` (an agitated bloom). Default `false`. |
+| `agitation` | Shake the holder **after** this pour (alias: `vibrate_after`). Any pattern. Default `false`. |
+| `vibrate_before` | Shake the holder **before** this pour. Any pattern. Default `false`. |
 | `pause_s`   | Pause after this pour, seconds (0–255; the on-machine countdown caps near 99 s). |
 | `rpm`       | Agitation rotation speed (60–120, 10-RPM steps; `0` for `center`). |
 | `flow_ml_s` | Flow rate in ml/s (3.0–3.5, 0.1 steps).                         |
@@ -446,7 +447,7 @@ track real hardware.**
 | `flow_ml_s`   | 3.0–3.5 ml/s   | **Firm (per xBloom Studio specs).** Settable in 0.1 steps. |
 | `pause_s`     | 0–255          | The wire byte is `256 − seconds` (so 0–255 fits), but the **on-machine countdown caps near 99 s** — treat 0–99 as the practical range. |
 | `ml` (pour)   | 1–4000 ml      | Lower bound (≥1) is firm; a pour **over 127 ml is auto-split** by the protocol (not an error). The 4000 ceiling is just a sanity guard. |
-| `pattern`     | `spiral`, `ring`, `center` | **Firm.** These are the decoded pattern codes; `agitation: true` is only valid with `spiral`. |
+| `pattern`     | `spiral`, `ring`, `center` | **Firm.** These are the decoded pattern codes. Vibration is a separate byte, so either vibration flag is valid with any pattern. |
 
 > **Source:** xBloom Studio published specifications.
 
@@ -575,20 +576,39 @@ Each pour becomes an **8-byte segment**:
 | 0      | `ml`       | Pour volume for this segment, ml.                    |
 | 1      | `temp`     | Water temperature, °C.                               |
 | 2      | `pat`      | Pattern code (see table).                            |
-| 3      | `agit`     | Agitation code (see table).                          |
+| 3      | `vib`      | Vibration bitfield (see below) — independent of `pat`. |
 | 4      | `negpause` | `(256 − pause_s) & 0xff` — post-pour pause.          |
 | 5      | `00`       | Constant zero.                                       |
 | 6      | `rpm`      | Agitation rotation speed (0 for center pours).       |
 | 7      | `flow10`   | Flow rate in ml/s × 10 (3.0 → `0x1e`).               |
 
-**Pattern codes** — `(pattern, agitation) → (pat, agit)`:
+**Pattern codes** (byte 2) — where the water lands:
 
-| Pattern  | Agitation | `pat` | `agit` |
-|----------|-----------|-------|--------|
-| spiral   | true      | 0x02  | 0x02   |
-| spiral   | false     | 0x02  | 0x00   |
-| ring     | false     | 0x01  | 0x00   |
-| center   | false     | 0x00  | 0x01   |
+| Pattern  | `pat` |
+|----------|-------|
+| spiral   | 0x02  |
+| ring     | 0x01  |
+| center   | 0x00  |
+
+**Vibration bits** (byte 3) — the dripper holder is shaken before and/or after the
+pour. Independent of the pattern; the two bits map 1:1 onto the vendor cloud
+schema's two per-pour booleans:
+
+| Bit  | Value | Recipe field                       | Cloud field                |
+|------|-------|------------------------------------|----------------------------|
+| 0    | 0x01  | `vibrate_before`                   | `isEnableVibrationBefore`  |
+| 1    | 0x02  | `agitation` (alias `vibrate_after`)| `isEnableVibrationAfter`   |
+
+Both default to off, so byte 3 is `0x00` unless a recipe asks for a shake.
+
+> **Note.** Until v2.3.0 this byte was modelled as half of the pattern table, with
+> `center → (0x00, 0x01)`. That coupling came from the source capture — the app
+> recipe it was decoded from happened to have vibrate-before enabled on its center
+> pour — so *every* center pour shook the holder before pouring and there was no way
+> to switch it off. Measured on hardware across 9 brews (27 inter-pour gaps): a gap
+> preceding a pour with bit 0 set runs **+6.6 s** longer than its programmed pause
+> (n=13, range +6.0…+7.0), while gaps preceding a pour without it land on target
+> (n=14, mean −0.3 s).
 
 **Large pours:** a pour above 127 ml is split into 127-ml **4-byte lead
 segments** (`[ml, temp, pat, agit]`) followed by an 8-byte remainder segment

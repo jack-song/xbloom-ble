@@ -131,6 +131,9 @@ class PourRow(Horizontal):
             "rpm": str(p.get("rpm", 100)),
             "flow_ml_s": str(p.get("flow_ml_s", 3.0)),
             "agitation": bool(p.get("agitation", False)),
+            # No cell for this one — the row has no column to spare. Carried through
+            # untouched so editing a recipe in the TUI never silently drops it.
+            "vibrate_before": bool(p.get("vibrate_before", False)),
         }
 
     def compose(self) -> ComposeResult:
@@ -158,6 +161,7 @@ class PourRow(Horizontal):
             "rpm": num("rpm", int, 100),
             "flow_ml_s": num("flow_ml_s", float, 3.0),
             "agitation": self._agit(),
+            "vibrate_before": self._init["vibrate_before"],
         }
 
     def _patt(self) -> str:
@@ -288,6 +292,7 @@ class EditorView(VerticalScroll):
             src = [{
                 "ml": p.ml, "temp_c": p.temp_c, "pattern": p.pattern, "pause_s": p.pause_s,
                 "rpm": p.rpm, "flow_ml_s": p.flow_ml_s, "agitation": p.agitation,
+                "vibrate_before": p.vibrate_before,
             } for p in recipe.pours]
         else:  # blank defaults for a new recipe
             src = [{"ml": 40, "pause_s": 30}, {"ml": 200, "pause_s": 5}]

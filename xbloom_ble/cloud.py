@@ -203,8 +203,9 @@ def _pour_to_cloud(pour: Pour, index: int) -> dict[str, Any]:
     """Map one :class:`~xbloom_ble.recipe.Pour` to the cloud pour schema.
 
     * ``pattern`` → 1/2 (center/circular; this package's spiral & ring → 2).
-    * ``agitation`` → ``isEnableVibrationAfter`` (agitate *after* the pour, e.g.
-      the recipe's "agitation after bloom"). 1 = on, 2 = off.
+    * ``agitation`` → ``isEnableVibrationAfter`` (shake *after* the pour, e.g.
+      the recipe's "agitation after bloom") and ``vibrate_before`` →
+      ``isEnableVibrationBefore``. Both 1 = on, 2 = off.
     * booleans are encoded 1 = on, 2 = off (never true/false).
     """
     pattern_code = PATTERN_CODES.get(pour.pattern)
@@ -220,7 +221,7 @@ def _pour_to_cloud(pour: Pour, index: int) -> dict[str, Any]:
         "flowRate": float(pour.flow_ml_s),
         "pattern": pattern_code,
         "pausing": int(pour.pause_s),
-        "isEnableVibrationBefore": _cloud_bool(False),
+        "isEnableVibrationBefore": _cloud_bool(bool(pour.vibrate_before)),
         "isEnableVibrationAfter": _cloud_bool(bool(pour.agitation)),
     }
 
@@ -332,6 +333,8 @@ def recipe_from_cloud(payload: dict[str, Any]) -> Recipe:
             "rpm": 0 if pattern == "center" else rpm,
             "flow_ml_s": float(p.get("flowRate", 3.0)),
             "agitation": int(p.get("isEnableVibrationAfter", CLOUD_FALSE)) == CLOUD_TRUE,
+            "vibrate_before":
+                int(p.get("isEnableVibrationBefore", CLOUD_FALSE)) == CLOUD_TRUE,
         })
     no_grind = rv.get("isSetGrinderSize") == CLOUD_FALSE or rv.get("grinderSize") in (None, 0)
     return Recipe.from_dict({

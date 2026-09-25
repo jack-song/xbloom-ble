@@ -51,14 +51,19 @@ def test_bad_pattern_raises():
         Recipe.from_dict(bad)
 
 
-def test_agitation_only_with_spiral_raises():
-    bad = _with(pours=[
+def test_vibration_is_independent_of_pattern():
+    """Byte 2 (pattern) and byte 3 (vibration) are separate fields, so ANY pattern may
+    carry either vibration flag. This used to raise: the old pattern table only had a
+    (spiral, True) key, which made "center + agitation" inexpressible."""
+    ok = _with(pours=[
         {"ml": 35, "temp_c": 90, "pattern": "center", "agitation": True,
-         "pause_s": 40, "rpm": 100, "flow_ml_s": 3.0},
-        {"ml": 115, "temp_c": 90, "pattern": "spiral", "pause_s": 5, "rpm": 100, "flow_ml_s": 3.0},
+         "pause_s": 40, "rpm": 0, "flow_ml_s": 3.0},
+        {"ml": 115, "temp_c": 90, "pattern": "ring", "vibrate_before": True,
+         "pause_s": 5, "rpm": 100, "flow_ml_s": 3.0},
     ])
-    with pytest.raises(RecipeError):
-        Recipe.from_dict(bad)
+    r = Recipe.from_dict(ok)          # must not raise
+    assert r.pours[0].agitation is True
+    assert r.pours[1].vibrate_before is True
 
 
 def test_ml_out_of_range_raises():

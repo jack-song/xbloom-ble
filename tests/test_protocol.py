@@ -18,6 +18,7 @@ from pathlib import Path
 
 import pytest
 
+from xbloom_ble import protocol
 from xbloom_ble.protocol import (
     CANCEL_OPCODE,
     COMMIT_OPCODE,
@@ -87,8 +88,14 @@ RECIPES = {
              "pause": 35, "rpm": 100, "flow": 2.8},
             {"ml": 80, "temp": 90, "pattern": "ring", "agitation": False,
              "pause": 10, "rpm": 90, "flow": 3.0},
+            # vibrate_before is stated EXPLICITLY here. The reference capture's center
+            # pour really does carry byte 3 = 0x01, which is where the old
+            # "center implies 0x01" coupling came from. Now that the byte is decoded as
+            # an independent vibration bitfield defaulting to off, reproducing that
+            # frame means asking for the shake by name — which keeps this byte-for-byte
+            # comparison meaningful instead of quietly re-encoding the old assumption.
             {"ml": 60, "temp": 88, "pattern": "center", "agitation": False,
-             "pause": 0, "rpm": 0, "flow": 3.0},
+             "vibrate_before": True, "pause": 0, "rpm": 0, "flow": 3.0},
         ],
     },
 }
@@ -191,3 +198,46 @@ def test_frame_crc_roundtrips():
 
     stored = struct.unpack("<H", frame[-2:])[0]
     assert stored == crc16_kermit(frame[:-2])
+
+
+# ── byte 3: the vibration bitfield (decoupled from the pattern) ────────────
+def _byte3(**pour):
+    """Encode one 45 ml pour and return its segment's byte 3."""
+    base = {"ml": 45, "temp": 91, "pattern": "spiral", "pause": 20, "rpm": 0, "flow": 3.5}
+    body = protocol.build_41([{**base, **pour}], grind=0, tail=0xA0)
+    return body[2 + 3]          # skip the 01 | LEN header, then offset 3 of the segment
+
+
+@pytest.mark.parametrize("pattern", ["spiral", "ring", "center"])
+def test_no_vibration_by_default_for_every_pattern(pattern):
+    """The regression this decoupling fixes: `center` used to hard-code byte 3 = 0x01,
+    so every center pour shook the dripper holder before pouring with no way off."""
+    assert _byte3(pattern=pattern) == 0x00
+
+
+@pytest.mark.parametrize("pattern", ["spiral", "ring", "center"])
+def test_vibration_bits_are_independent_of_pattern(pattern):
+    assert _byte3(pattern=pattern, vibrate_before=True) == protocol.VIBRATE_BEFORE
+    assert _byte3(pattern=pattern, vibrate_after=True) == protocol.VIBRATE_AFTER
+    assert _byte3(pattern=pattern, vibrate_before=True, vibrate_after=True) == 0x03
+
+
+def test_agitation_is_accepted_as_alias_for_vibrate_after():
+    assert _byte3(agitation=True) == protocol.VIBRATE_AFTER
+    assert _byte3(agitation=True) == _byte3(vibrate_after=True)
+    # An explicit vibrate_after wins over the legacy alias.
+    assert _byte3(agitation=True, vibrate_after=False) == 0x00
+
+
+def test_pattern_byte_is_unchanged_by_the_split():
+    assert _byte3(pattern="center") == 0x00
+    for name, code in (("spiral", 0x02), ("ring", 0x01), ("center", 0x00)):
+        base = {"ml": 45, "temp": 91, "pattern": name, "pause": 20, "rpm": 0, "flow": 3.5}
+        assert protocol.build_41([base], grind=0, tail=0xA0)[2 + 2] == code
+
+
+def test_vibration_byte_helper():
+    assert protocol.vibration_byte() == 0x00
+    assert protocol.vibration_byte(before=True) == 0x01
+    assert protocol.vibration_byte(after=True) == 0x02
+    assert protocol.vibration_byte(before=True, after=True) == 0x03

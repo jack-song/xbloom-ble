@@ -98,7 +98,7 @@ Each pour is an **8-byte record**:
 | 0 | volume | ml (u8) |
 | 1 | temperature | °C (u8) |
 | 2 | pattern | spiral `0x02`, ring `0x01`, center `0x00` |
-| 3 | agitation / pattern-modifier | `0x02` = spiral+agitation; `0x01` pairs with center |
+| 3 | vibration bitfield | bit 0 (`0x01`) shake **before** the pour, bit 1 (`0x02`) shake **after**. Independent of byte 2 — see note below |
 | 4 | pause | **`(256 − seconds) & 0xFF`** |
 | 5 | — | constant `0x00` |
 | 6 | rpm | agitation rotation speed (`0` for center) |
@@ -107,6 +107,35 @@ Each pour is an **8-byte record**:
 Two encodings worth calling out because they're non-obvious and only fall out of the diff:
 the **pause is stored as `256 − seconds`**, and a **pour over 127 ml is split** into 127-ml lead
 segments plus a remainder segment.
+
+### A worked example of getting it wrong: byte 3
+
+Byte 3 was originally decoded *jointly* with byte 2, as a `(pattern, agitation) → (pat, agit)`
+table, because in the capture the two always moved together: `0x02` only ever appeared on an
+agitated spiral, and `0x01` only ever on a center pour. Reading `0x01` as "part of what center
+means" fit every frame in the capture — and was wrong.
+
+Two independent lines of evidence broke it apart:
+
+1. **The vendor's own cloud schema** (`xbloom_ble/cloud.py`) carries *two* per-pour booleans,
+   `isEnableVibrationBefore` and `isEnableVibrationAfter`. Two named flags, two bits. The
+   `agitation` input maps to `isEnableVibrationAfter` in the REST path *and* to `0x02` in the
+   binary path — pinning bit 1 by name, and leaving bit 0 to be "before" by elimination.
+2. **Timing on hardware.** A vibration takes real time, so it shows up in the telemetry water
+   trace as a gap that overruns its programmed pause. Across 9 brews (27 inter-pour gaps):
+
+   | gap precedes a pour with… | n | mean excess over programmed pause | range |
+   |---|---|---|---|
+   | bit 0 set (`0x01`) | 13 | **+6.59 s** | +6.0 … +7.0 |
+   | bit 0 clear (`0x00`) | 14 | −0.27 s | −1.0 … +0.2 |
+
+   The separation is total, and it is a genuine crossover rather than a correlation: partway
+   through the series the recipe changed so the `0x01` moved from pour 2 to pours 3 and 4, and
+   the +6.6 s moved with it.
+
+The lesson generalises: **when two adjacent bytes always covary in one capture, that is a
+hypothesis, not a decode.** Look for a second, independent encoding of the same recipe (here the
+REST API) where the fields are *named*, and for a physical side effect you can time.
 
 ---
 

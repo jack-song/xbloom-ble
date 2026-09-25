@@ -76,6 +76,9 @@ from collections.abc import Iterable, Mapping
 
 __all__ = [
     "PATTERN_CODES",
+    "VIBRATE_BEFORE",
+    "VIBRATE_AFTER",
+    "vibration_byte",
     "LOAD_SEQ",
     "crc16_kermit",
     "xbloom_frame",
@@ -114,14 +117,35 @@ COMMIT_OPCODE = 0x42  # commit: arm → awaiting-confirm (seq 0x1f)
 START_OPCODE = 0x46   # start: the "go" — begin brewing (seq 0x9e)
 CANCEL_OPCODE = 0x47  # cancel: abort a committed/running brew (seq 0x9e)
 
-# (pattern, agitation) -> (pat_byte, agit_byte). Verified combos from the
-# capture; others are best-effort extrapolation.
-PATTERN_CODES: dict[tuple[str, bool], tuple[int, int]] = {
-    ("spiral", True): (0x02, 0x02),   # bloom (spiral + agitation ON)
-    ("spiral", False): (0x02, 0x00),  # default spiral
-    ("ring", False): (0x01, 0x00),    # ring / middle
-    ("center", False): (0x00, 0x01),  # center single dot
+# Pour-record byte 2 — the pour PATTERN (where the water lands). Nothing else.
+PATTERN_CODES: dict[str, int] = {
+    "spiral": 0x02,
+    "ring": 0x01,
+    "center": 0x00,
 }
+
+# Pour-record byte 3 — a VIBRATION BITFIELD, independent of the pattern. The
+# dripper holder is shaken before and/or after the pour; the two bits map 1:1 onto
+# the vendor cloud schema's two per-pour booleans (see cloud._pour_to_cloud):
+#
+#     bit 0 (0x01) -> isEnableVibrationBefore   shake BEFORE this pour
+#     bit 1 (0x02) -> isEnableVibrationAfter    shake AFTER this pour
+#
+# This byte used to be modelled as half of the pattern table, as
+# ``("center", False) -> (0x00, 0x01)``. That coupling was an artefact of the source
+# capture: the app recipe it came from happened to have vibrate-before enabled on
+# its center pour, so EVERY center pour this package emitted shook before pouring
+# and there was no way to switch it off. Confirmed on hardware 2026-08-31 — in a
+# 4-pour recipe whose only non-zero byte 3 was the second (center) pour, the holder
+# vibrated immediately before that pour and nowhere else, and the pause preceding
+# it ran ~6 s long across three runs while no other pause did.
+VIBRATE_BEFORE = 0x01
+VIBRATE_AFTER = 0x02
+
+
+def vibration_byte(before: bool = False, after: bool = False) -> int:
+    """Build pour-record byte 3 from the two independent vibration flags."""
+    return (VIBRATE_BEFORE if before else 0) | (VIBRATE_AFTER if after else 0)
 
 
 def crc16_kermit(data: bytes) -> int:
@@ -186,14 +210,24 @@ def _pour_segments(p: Mapping) -> list[bytes]:
     """Turn one logical pour dict into a list of segment byte-strings.
 
     ``p`` keys: ``ml``, ``temp``, ``pattern`` ('spiral'|'center'|'ring'),
-    ``agitation`` (bool), ``pause`` (seconds, post-pour), ``rpm`` (int),
-    ``flow`` (ml/s float).
+    ``vibrate_before`` / ``vibrate_after`` (bools; ``agitation`` is accepted as a
+    back-compat alias for ``vibrate_after``), ``pause`` (seconds, post-pour),
+    ``rpm`` (int), ``flow`` (ml/s float).
 
-    8-byte pour segment: ``[ml, temp, pat, agit, negpause, 00, rpm, flow*10]``.
-    A pour whose volume exceeds 127 ml is split into 127-ml 4-byte lead
-    segments followed by an 8-byte remainder carrying flow/pause/rpm.
+    8-byte pour segment: ``[ml, temp, pat, vib, negpause, 00, rpm, flow*10]``.
+    ``pat`` and ``vib`` are INDEPENDENT — see :data:`PATTERN_CODES` and
+    :func:`vibration_byte`. A pour whose volume exceeds 127 ml is split into
+    127-ml 4-byte lead segments followed by an 8-byte remainder carrying
+    flow/pause/rpm.
     """
-    pat, agit = PATTERN_CODES[(p.get("pattern", "spiral"), bool(p.get("agitation", False)))]
+    pattern = p.get("pattern", "spiral")
+    if pattern not in PATTERN_CODES:
+        raise KeyError(pattern)
+    pat = PATTERN_CODES[pattern]
+    vib = vibration_byte(
+        before=bool(p.get("vibrate_before", False)),
+        after=bool(p.get("vibrate_after", p.get("agitation", False))),
+    )
     ml = int(p["ml"])
     temp = int(p["temp"]) & 0xFF
     pause = int(p.get("pause", 0))
@@ -203,9 +237,9 @@ def _pour_segments(p: Mapping) -> list[bytes]:
     segs: list[bytes] = []
     remaining = ml
     while remaining > 127:
-        segs.append(bytes([127, temp, pat, agit]))
+        segs.append(bytes([127, temp, pat, vib]))
         remaining -= 127
-    segs.append(bytes([remaining & 0xFF, temp, pat, agit, negpause, 0x00, rpm, flow10]))
+    segs.append(bytes([remaining & 0xFF, temp, pat, vib, negpause, 0x00, rpm, flow10]))
     return segs
 
 
