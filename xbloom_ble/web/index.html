@@ -6,252 +6,270 @@
 <title>xBloom brew</title>
 <style>
   :root {
-    --bg: #fbfaf8; --panel: #ffffff; --ink: #1c1917; --dim: #78716c; --line: #e7e5e4;
-    --accent: #b45309; --accent-soft: #fef3c7; --bloom: #0e7490; --bloom-soft: #cffafe;
-    --danger: #b91c1c; --danger-soft: #fee2e2; --ok: #15803d;
-    --radius: 10px;
+    --bg: #f6f5f3; --panel: #ffffff; --sunk: #f0efec;
+    --ink: #1c1917; --dim: #78716c; --line: #e7e5e4;
+    --accent: #b45309; --accent-soft: #fef3c7;
+    --danger: #b91c1c; --danger-soft: #fee2e2;
+    --ok: #15803d; --ok-soft: #dcfce7;
+    /* One hue per headline parameter, so a glance at colour alone locates it. */
+    --dose: #b45309;   --dose-soft: #fef3c7;
+    --ratio: #6d28d9;  --ratio-soft: #ede9fe;
+    --temp: #be123c;   --temp-soft: #ffe4e6;
+    --bloom: #0e7490;  --bloom-soft: #cffafe;
+    --r: 4px;          /* the one corner radius; nothing else rounds */
     --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #17161a; --panel: #201f24; --ink: #f4f3f1; --dim: #a8a29e; --line: #35333a;
-      --accent: #fbbf24; --accent-soft: #3b2f10; --bloom: #67e8f9; --bloom-soft: #0d3b45;
-      --danger: #fca5a5; --danger-soft: #45191a; --ok: #6ee7a8;
+      --bg: #141317; --panel: #1d1c21; --sunk: #26252b;
+      --ink: #f4f3f1; --dim: #a8a29e; --line: #35333a;
+      --accent: #fbbf24; --accent-soft: #3b2f10;
+      --danger: #fca5a5; --danger-soft: #45191a;
+      --ok: #6ee7a8; --ok-soft: #12321f;
+      --dose: #fbbf24;  --dose-soft: #3b2f10;
+      --ratio: #c4b5fd; --ratio-soft: #2a2141;
+      --temp: #fda4af;  --temp-soft: #43151f;
+      --bloom: #67e8f9; --bloom-soft: #0d3b45;
     }
   }
   * { box-sizing: border-box; }
   body {
     margin: 0; background: var(--bg); color: var(--ink);
-    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-    -webkit-font-smoothing: antialiased;
+    font: 15px/1.5 var(--sans); -webkit-font-smoothing: antialiased;
   }
-  .wrap { max-width: 1060px; margin: 0 auto; padding: 24px 16px 64px; }
-  header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
-  h1 { font-size: 19px; margin: 0; letter-spacing: -0.01em; }
-  .meta { color: var(--dim); font-size: 12.5px; font-family: var(--mono); }
-  .cols { display: grid; grid-template-columns: 340px 1fr; gap: 20px; align-items: start; }
-  @media (max-width: 800px) { .cols { grid-template-columns: 1fr; } }
-  .panel {
-    background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
-    padding: 16px;
-  }
-  .panel h2 {
-    font-size: 11px; text-transform: uppercase; letter-spacing: 0.09em; color: var(--dim);
-    margin: 0 0 12px; font-weight: 600;
-  }
-
-  /* --- parameters --------------------------------------------------------- */
-  .param { display: grid; grid-template-columns: 1fr 104px; gap: 4px 10px;
-           align-items: center; padding: 7px 0; border-bottom: 1px solid var(--line); }
-  .param:last-child { border-bottom: 0; }
-  .param .name { font-weight: 550; display: flex; align-items: center; gap: 6px; }
-  .param .hint { grid-column: 1; color: var(--dim); font-size: 12px; line-height: 1.3; }
-  .param input, .param select {
-    font: 600 15px/1 var(--mono); color: var(--ink); background: var(--bg);
-    border: 1px solid var(--line); border-radius: 7px; padding: 7px 8px; width: 100%;
-    grid-row: span 2; text-align: right;
-  }
-  .param select { text-align: left; font-weight: 550; }
-  .param input:focus, .param select:focus { outline: 2px solid var(--accent); border-color: transparent; }
-  .changed { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
-  .param .unit { color: var(--dim); font-weight: 500; font-size: 12.5px;
-                 font-family: var(--mono); }
-  .row-actions { display: flex; gap: 8px; margin-top: 14px; }
-
-  /* --- the plan ----------------------------------------------------------- */
-  .headline { display: flex; align-items: baseline; justify-content: space-between;
-              gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
-  .recipe-name { font-size: 17px; font-weight: 650; letter-spacing: -0.01em; }
-  .totals { display: flex; gap: 22px; }
-  .total { text-align: right; }
-  .total b { display: block; font: 700 24px/1.1 var(--mono); letter-spacing: -0.02em;
-             font-variant-numeric: tabular-nums; }
-  .total b i { font: 600 15px/1.8 var(--mono); font-style: normal; color: var(--dim); }
-  .total span { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em;
-                color: var(--dim); }
-
-  table.pours { width: 100%; border-collapse: collapse; font-family: var(--mono);
-                font-variant-numeric: tabular-nums; font-size: 13.5px; }
-  table.pours th {
-    text-align: right; font: 600 10.5px/1 -apple-system, system-ui, sans-serif;
-    text-transform: uppercase; letter-spacing: 0.07em; color: var(--dim);
-    padding: 0 8px 7px; border-bottom: 1px solid var(--line);
-  }
-  table.pours th:first-child, table.pours td:first-child { text-align: left; }
-  table.pours td { padding: 9px 8px; border-bottom: 1px solid var(--line); text-align: right;
-                   white-space: nowrap; }
-  table.pours tr:last-child td { border-bottom: 0; }
-  td.label { font: 600 14px/1 -apple-system, system-ui, sans-serif; }
-  tr.bloom td.label { color: var(--bloom); }
-  td.ml { font-weight: 700; font-size: 15px; }
-  .bar { height: 5px; border-radius: 3px; background: var(--accent); min-width: 3px;
-         display: block; }
-  tr.bloom .bar { background: var(--bloom); }
-  .bar-cell { width: 20%; }
-  .chip { display: inline-block; padding: 2px 7px; border-radius: 5px; font-size: 11.5px;
-          font-weight: 600; background: var(--accent-soft); color: var(--accent);
-          font-family: -apple-system, system-ui, sans-serif; }
-  tr.bloom .chip, .chip.center { background: var(--bloom-soft); color: var(--bloom); }
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 22px 16px 64px; }
+  h1 { font-size: 17px; margin: 0 0 16px; letter-spacing: -0.01em; }
   .muted { color: var(--dim); }
-  .math { margin-top: 12px; font-family: var(--mono); font-size: 12.5px; color: var(--dim);
-          font-variant-numeric: tabular-nums; }
+  .eyebrow {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.09em; color: var(--dim);
+    font-weight: 600; margin-bottom: 10px;
+  }
 
-  .banner { margin-top: 14px; padding: 10px 12px; border-radius: 8px; font-size: 13.5px;
-            display: flex; gap: 9px; align-items: flex-start; }
+  /* Two columns: the brew on the left, what you have saved on the right. Surfaces are
+     told apart by background alone — no outlines — and nothing is rounded but the controls. */
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: 16px;
+            align-items: start; }
+  @media (max-width: 940px) { .layout { grid-template-columns: 1fr; } }
+  .stack { display: grid; gap: 16px; }
+  .panel { background: var(--panel); padding: 18px; border-radius: var(--r); }
+  /* "Pass through": surfaces that hold text or input carry no fill of their own, so the
+     panel's colour shows straight through and contrast stays at its highest. Hover and
+     focus are a translucent wash over whatever is behind, never a different shade. */
+  :root { --wash: rgba(127, 127, 127, 0.14); }
+
+  /* --- the staged brew ------------------------------------------------------
+     Exactly one brew is staged: a saved file, which every edit writes back to, or
+     "new", which is saved nowhere. This bar says which. */
+  #staged {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 14px;
+    border-radius: var(--r); font-size: 14px; background: var(--sunk);
+  }
+  #staged .what { font-weight: 650; }
+  #staged .note { color: var(--dim); font-size: 12.5px; }
+  #staged .btns { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+  #staged-name {
+    font: 650 15px/1.2 var(--sans); color: inherit; background: transparent; min-width: 12ch;
+    border: 0; border-radius: var(--r); padding: 4px 7px; margin: -4px 0;
+    field-sizing: content; width: 26ch; max-width: 34ch;
+  }
+  #staged-name:hover, #staged-name:focus { outline: none; background: var(--wash); }
+  #staged.saved { background: var(--ok-soft); color: var(--ok); }
+
+  /* --- parameters: the main event ------------------------------------------ */
+  .heroes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .others { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-top: 10px; }
+  @media (max-width: 1100px) { .heroes { grid-template-columns: repeat(2, 1fr); }
+                               .others { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 500px) { .others { grid-template-columns: repeat(2, 1fr); } }
+
+  /* A default card is quiet: no fill, dim value. A changed card is loud: its parameter's
+     tint, its colour, and a heavy bottom edge. The edge is reserved on every card (clear
+     when unchanged) so nothing shifts when a value changes, and it means "changed" only —
+     focus gets the wash, not the edge. */
+  .p { position: relative; padding: 11px 12px 8px; border-radius: var(--r);
+       border-bottom: 3px solid transparent; transition: background .12s; }
+  .p:hover, .p:focus-within { background: var(--wash); }
+  .p .label {
+    display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
+    font-weight: 650; color: var(--dim); margin-bottom: 6px;
+  }
+  .p input, .p select {
+    width: 100%; border: 0; background: transparent; color: var(--dim); padding: 0;
+    font: 700 30px/1.05 var(--mono); font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em; -moz-appearance: textfield;
+  }
+  .p input::-webkit-outer-spin-button, .p input::-webkit-inner-spin-button {
+    -webkit-appearance: none; margin: 0;
+  }
+  .p input:focus, .p select:focus { outline: none; }
+  /* A changed card grows only a way back. Whether a parameter is on its default is
+     said by colour alone. */
+  .p .revert {
+    position: absolute; top: 6px; right: 6px; border: 0; background: none;
+    color: var(--hue); cursor: pointer; font: 600 13px/1 var(--sans);
+    padding: 3px 5px; border-radius: var(--r);
+  }
+  .p .revert:hover { background: var(--wash); }
+
+  /* changed: the card takes the parameter's own colour */
+  .p.on { background: var(--tint); color: var(--hue); border-bottom-color: var(--hue); }
+  .p.on:hover, .p.on:focus-within { background: var(--tint); }
+  .p.on .label, .p.on input, .p.on select { color: var(--hue); }
+
+  /* the four headline cards are bigger and always wear their hue */
+  .hero .label { color: var(--hue); }
+  .hero input, .hero select { font-size: 38px; }
+  .others .p input, .others .p select { font-size: 21px; }
+
+  /* --- the summary: what the parameters add up to, and the pours they make ---- */
+  .summary { margin-top: 16px; font-size: 12.5px; color: var(--dim); line-height: 1.6; }
+  .summary b { font-weight: 650; color: var(--ink); }
+  .summary .chg, .summary .pours { font-family: var(--mono); font-size: 12px; }
+  .summary .pours { display: block; }
+  .summary .pours em { font-style: normal; color: var(--bloom); }
+
+  .actions { display: flex; gap: 10px; margin-top: 14px; align-items: center; flex-wrap: wrap; }
+  .banner { margin-top: 12px; padding: 9px 12px; border-radius: var(--r); font-size: 13px; }
   .banner.bad { background: var(--danger-soft); color: var(--danger); }
   .banner.warn { background: var(--accent-soft); color: var(--accent); }
   .banner b { font-weight: 650; }
 
-  /* --- buttons ------------------------------------------------------------ */
+  /* --- buttons: filled, no outlines ----------------------------------------- */
   button {
-    font: 600 14px/1 -apple-system, system-ui, sans-serif; padding: 11px 15px;
-    border-radius: 8px; border: 1px solid var(--line); background: var(--panel);
-    color: var(--ink); cursor: pointer;
+    font: 600 14px/1 var(--sans); padding: 11px 16px; border-radius: var(--r);
+    border: 0; background: var(--sunk); color: var(--ink); cursor: pointer;
   }
-  button:hover:not(:disabled) { border-color: var(--dim); }
+  button:hover:not(:disabled) { filter: brightness(0.96); }
+  @media (prefers-color-scheme: dark) { button:hover:not(:disabled) { filter: brightness(1.18); } }
   button:disabled { opacity: 0.42; cursor: not-allowed; }
-  button.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); }
-  button.danger { color: var(--danger); border-color: var(--danger); }
-  button.danger:hover:not(:disabled) { background: var(--danger-soft); }
+  button.primary { background: var(--ink); color: var(--bg); }
+  button.danger { background: var(--danger-soft); color: var(--danger); }
   button.small { padding: 6px 10px; font-size: 12.5px; }
-  .actions { display: flex; gap: 10px; margin-top: 16px; align-items: center; flex-wrap: wrap; }
-  .actions .note { color: var(--dim); font-size: 12.5px; }
+  button.ghost { background: transparent; color: var(--dim); }
+  button.ghost:hover:not(:disabled) { background: var(--sunk); color: var(--ink); }
+  #staged button { background: var(--panel); color: var(--ink); }
+  #staged button.primary { background: var(--ink); color: var(--bg); }
+  #staged button.danger { background: var(--panel); color: var(--danger); }
 
-  /* --- recent + run log --------------------------------------------------- */
-  .brew-row { display: grid; grid-template-columns: 1fr auto auto; gap: 10px;
-              align-items: center; padding: 9px 0; border-bottom: 1px solid var(--line); }
-  .brew-row:last-child { border-bottom: 0; }
-  .brew-row .file { font-family: var(--mono); font-size: 12.5px; }
-  .brew-row .sum { color: var(--dim); font-family: var(--mono); font-size: 12px; }
-  .brew-row .age { color: var(--dim); font-size: 12px; }
+  /* --- saved brews (the right-hand column) ---------------------------------- */
+  aside h2 { margin: 2px 0 10px; font-size: 11px; text-transform: uppercase;
+             letter-spacing: 0.09em; color: var(--dim); font-weight: 600; }
+  /* The column itself is bare; each brew is its own card. */
+  .brew-row { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; align-items: center;
+              padding: 12px 14px; border-radius: var(--r); background: var(--panel);
+              box-shadow: inset 3px 0 0 transparent; }
+  .brew-row + .brew-row { margin-top: 8px; }
+  .brew-row.current { background: var(--ok-soft); box-shadow: inset 3px 0 0 var(--ok); }
+  .brew-row.twin { box-shadow: inset 3px 0 0 var(--ok); }
+  .brew-row .name-edit {
+    font: 600 14px/1.2 var(--sans); color: var(--ink); background: transparent;
+    border: 0; border-radius: var(--r); padding: 4px 6px; width: 100%; margin: -4px 0 -4px -6px;
+  }
+  .brew-row .name-edit:hover, .brew-row .name-edit:focus { outline: none; background: var(--wash); }
+  .brew-row .sum { color: var(--dim); font-family: var(--mono); font-size: 11.5px; }
+  .brew-row .age { color: var(--dim); font-size: 11.5px; white-space: nowrap; }
+  .brew-row .btns { display: flex; gap: 4px; grid-column: 1 / -1; margin-top: 4px; }
+  .brew-row .btns button { background: var(--sunk); }
+  .brew-row .btns button.danger { background: var(--danger-soft); }
+  .brew-row .btns .ghost { background: transparent; margin-left: auto; }
+  .brew-row .btns .ghost:hover:not(:disabled) { background: var(--wash); }
+
+  /* --- logs ------------------------------------------------------------------ */
   pre.log {
-    margin: 12px 0 0; padding: 12px; background: var(--bg); border: 1px solid var(--line);
-    border-radius: 8px; font-family: var(--mono); font-size: 12.5px; line-height: 1.55;
+    margin: 0; padding: 0; background: transparent; color: var(--ink);
+    font-family: var(--mono); font-size: 12.5px; line-height: 1.55;
     max-height: 340px; overflow: auto; white-space: pre-wrap; word-break: break-word;
   }
-  .runhead { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-  .tag { font: 600 11px/1 -apple-system, system-ui, sans-serif; text-transform: uppercase;
-         letter-spacing: 0.07em; padding: 4px 8px; border-radius: 5px;
-         background: var(--accent-soft); color: var(--accent); }
-  .tag.live { background: var(--danger-soft); color: var(--danger); }
-  .tag.done { background: var(--bloom-soft); color: var(--bloom); }
-  .stack { display: grid; gap: 20px; }
 
-  dialog {
-    border: 1px solid var(--line); border-radius: 12px; background: var(--panel);
-    color: var(--ink); padding: 20px; max-width: 440px; width: calc(100% - 32px);
-  }
-  dialog::backdrop { background: rgba(0,0,0,0.45); }
-  dialog h3 { margin: 0 0 8px; font-size: 16px; }
+  dialog { border: 0; border-radius: var(--r); background: var(--panel); color: var(--ink);
+           padding: 20px; max-width: 420px; width: calc(100% - 32px); }
+  dialog::backdrop { background: rgba(0,0,0,0.5); }
+  dialog h3 { margin: 0 0 12px; font-size: 16px; }
   dialog p { margin: 0 0 14px; font-size: 13.5px; color: var(--dim); }
-  dialog label.check { display: flex; gap: 9px; align-items: flex-start; font-size: 13.5px;
-                       margin: 12px 0 18px; cursor: pointer; }
-  dialog input[type=text] {
-    width: 100%; font: 600 14px/1 var(--mono); padding: 9px 10px; border-radius: 8px;
-    border: 1px solid var(--line); background: var(--bg); color: var(--ink);
-  }
-  dialog .summary { font-family: var(--mono); font-size: 13px; padding: 10px 12px;
-                    background: var(--bg); border-radius: 8px; margin-bottom: 14px;
-                    font-variant-numeric: tabular-nums; }
-  dialog .btns { display: flex; gap: 10px; justify-content: flex-end; }
-  .field-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
-                 color: var(--dim); font-weight: 600; display: block; margin-bottom: 5px; }
+  dialog .summary-box { font-family: var(--mono); font-size: 13px; padding: 10px 12px;
+                        background: var(--sunk); border-radius: var(--r); margin-bottom: 12px;
+                        font-variant-numeric: tabular-nums; }
+  dialog .btns { display: flex; gap: 8px; justify-content: flex-end; }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <header>
-    <h1>xBloom brew generator</h1>
-    <span class="meta" id="meta"></span>
-  </header>
+  <h1>xBloom brew</h1>
 
-  <div class="cols">
-    <!-- parameters ------------------------------------------------------- -->
-    <section class="panel">
-      <h2>Parameters</h2>
-      <div id="params"></div>
-      <div class="row-actions">
-        <button class="small" id="reset">Reset to defaults</button>
-        <button class="small" id="show-yaml">Show YAML</button>
-      </div>
-    </section>
-
+  <div class="layout">
     <div class="stack">
-      <!-- the plan ------------------------------------------------------- -->
+      <!-- which brew is staged: a saved file, or an unsaved new one ----------- -->
+      <div id="staged">
+        <span class="what" id="staged-what">…</span>
+        <input id="staged-name" spellcheck="false" hidden>
+        <span class="note" id="staged-note"></span>
+        <span class="btns" id="staged-btns"></span>
+      </div>
+
+      <!-- PARAMETERS: the main event ---------------------------------------- -->
       <section class="panel">
-        <h2>This brew</h2>
-        <div class="headline">
-          <div class="recipe-name" id="recipe-name">…</div>
-          <div class="totals" id="totals"></div>
-        </div>
-        <table class="pours">
-          <thead><tr>
-            <th>pour</th><th>ml</th><th class="bar-cell"></th><th>temp</th>
-            <th>pattern</th><th>rpm</th><th>then wait</th>
-          </tr></thead>
-          <tbody id="pours"></tbody>
-        </table>
-        <div class="math" id="math"></div>
+        <div class="heroes" id="heroes"></div>
+        <div class="others" id="others"></div>
+
+        <div class="summary" id="summary"></div>
         <div id="banners"></div>
+
         <div class="actions">
-          <button class="primary" id="load">Load onto machine</button>
-          <button class="danger" id="start">Load + START brew</button>
-          <span class="note" id="action-note">Loading only arms the machine — you approve on it.</span>
+          <button class="danger" id="start">Brew</button>
         </div>
       </section>
 
-      <!-- live run ------------------------------------------------------- -->
       <section class="panel" id="run-panel" hidden>
-        <h2>Run</h2>
-        <div class="runhead">
-          <span class="tag" id="run-tag">…</span>
-          <strong id="run-name"></strong>
-          <span class="meta" id="run-meta"></span>
-          <button class="small" id="run-stop">Stop watching</button>
-        </div>
+        <div class="eyebrow">Logs</div>
         <pre class="log" id="run-log"></pre>
       </section>
-
-      <!-- recent --------------------------------------------------------- -->
-      <section class="panel">
-        <h2>Recent brews</h2>
-        <div class="meta" id="recent-dir" style="margin:-6px 0 12px;word-break:break-all"></div>
-        <div id="recent"></div>
-      </section>
     </div>
+
+    <!-- saved brews: the right-hand column ---------------------------------- -->
+    <aside>
+      <h2>Saved brews</h2>
+      <div id="recent"></div>
+    </aside>
   </div>
 </div>
 
-<dialog id="yaml-dialog">
-  <h3>Recipe YAML</h3>
-  <pre class="log" id="yaml-text" style="max-height:60vh"></pre>
-  <div class="btns"><button id="yaml-close">Close</button></div>
-</dialog>
-
 <dialog id="start-dialog">
-  <h3>Start this brew remotely?</h3>
-  <p>This commits and starts the brew — the machine will dispense near-boiling water.</p>
-  <div class="summary" id="start-summary"></div>
-  <label class="field-label" for="start-name">Name this brew</label>
-  <input type="text" id="start-name" autocomplete="off">
-  <label class="check">
-    <input type="checkbox" id="start-ack">
-    <span>Water, cup and coffee are in place, and I can see the machine.</span>
-  </label>
+  <h3>Brew this remotely?</h3>
+  <div class="summary-box"><strong id="start-name"></strong><br>
+    <span id="start-summary"></span></div>
+  <p>The machine will dispense near-boiling water.</p>
   <div class="btns">
     <button id="start-cancel">Cancel</button>
-    <button class="danger" id="start-go" disabled>Start brewing</button>
+    <button class="danger" id="start-go">Brew now</button>
   </div>
 </dialog>
 
 <script>
 'use strict';
 const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
+  ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+
+let lastRows = [];
 let params = {};          // current parameter state
 let planData = null;      // last plan from /api/plan
 let config = null;
+let brews = [];           // cached brews, as shown in the saved list
+// The staged brew: {file, name} when a saved recipe is being edited, null for "new".
+// Everything about saving hangs off this one variable — if it is set, every parameter
+// edit is written back to that file; if it is null, nothing is written anywhere.
+let staged = null;
+let saveTimer = null, saveState = '';
+// Staging loads a file's parameters *into* the page, which looks exactly like an edit.
+// This says "that render came from disk", so it is not written straight back.
+let justStaged = false;
 let pending = null;       // {file} when the start dialog was opened from a cached brew
 let pollTimer = null, logSince = 0;
+
+// The four parameters that decide how the cup tastes get their own colour and the
+// big cards; everything else is a knob you set once and rarely touch.
+const HERO = {dose: 'dose', ratio: 'ratio', temp: 'temp', bloom_time: 'bloom'};
 
 const POST = (path, body) => fetch(path, {
   method: 'POST',
@@ -259,17 +277,32 @@ const POST = (path, body) => fetch(path, {
   body: JSON.stringify(body || {}),
 }).then(async (r) => {
   const data = await r.json().catch(() => ({error: r.statusText}));
-  if (!r.ok) throw new Error(data.error || r.statusText);
+  if (!r.ok) throw new Error(stale(r, data) || data.error || r.statusText);
   return data;
 });
 
+/** The page is re-read from disk on every request; the server's Python is not. So a
+ *  long-running `xbloom web` happily serves a page that calls routes it has never
+ *  heard of, and the only symptom is a bare "not found". Say the real thing. */
+function stale(r, data) {
+  if (r.status !== 404 || data.error !== 'not found') return null;
+  return 'This page is newer than the server running it — restart `xbloom web` ' +
+         `(the route ${new URL(r.url).pathname} does not exist yet).`;
+}
+
 // --- parameters ------------------------------------------------------------
-function paramRow(row) {
+function paramCard(row) {
+  const hue = HERO[row.key];
   const el = document.createElement('div');
-  el.className = 'param';
-  const dot = row.is_default ? '' : '<i class="changed" title="changed from default"></i>';
-  const unit = row.unit ? `<span class="unit">${row.unit}</span>` : '';
-  el.innerHTML = `<div class="name">${row.label}${unit}${dot}</div>`;
+  el.className = 'p' + (hue ? ' hero' : '') + (row.is_default ? '' : ' on');
+  if (hue) el.style.cssText = `--hue: var(--${hue}); --tint: var(--${hue}-soft)`;
+  else el.style.cssText = '--hue: var(--accent); --tint: var(--accent-soft)';
+
+  const label = document.createElement('span');
+  label.className = 'label';
+  label.textContent = row.unit ? `${row.label} · ${row.unit}` : row.label;
+  el.appendChild(label);
+
   let input;
   if (row.choices) {
     input = document.createElement('select');
@@ -293,64 +326,188 @@ function paramRow(row) {
     refresh();
   };
   input.addEventListener('change', commit);
-  input.addEventListener('input', () => { clearTimeout(input._t); input._t = setTimeout(commit, 250); });
+  input.addEventListener('input', () => {
+    clearTimeout(input._t); input._t = setTimeout(commit, 250);
+  });
   el.appendChild(input);
-  const hint = document.createElement('div');
-  hint.className = 'hint';
-  hint.textContent = row.hint;
-  el.appendChild(hint);
+
+  // Colour says whether this is on its default; the only thing left to offer is the
+  // way back, and that is worth showing only on a card that has somewhere to go.
+  if (!row.is_default) {
+    const revert = document.createElement('button');
+    revert.className = 'revert';
+    revert.textContent = '↺';
+    revert.title = `Back to the default, ${row.default_display}`;
+    revert.addEventListener('click', () => { params[row.key] = row.default; refresh(); });
+    el.appendChild(revert);
+  }
+  el.title = row.hint || '';
   return el;
 }
 
 function renderParams(rows) {
-  const box = $('params');
+  lastRows = rows;
   const focused = document.activeElement && document.activeElement.id;
-  box.innerHTML = '';
-  rows.forEach((r) => box.appendChild(paramRow(r)));
-  if (focused && $(focused)) $(focused).focus();
+  const caret = focused && document.activeElement.selectionStart;
+  $('heroes').innerHTML = '';
+  $('others').innerHTML = '';
+  rows.forEach((r) => (HERO[r.key] ? $('heroes') : $('others')).appendChild(paramCard(r)));
+  const back = focused && $(focused);
+  if (back) {
+    back.focus();
+    if (caret !== null && caret !== undefined && back.setSelectionRange) {
+      try { back.setSelectionRange(caret, caret); } catch (e) { /* number inputs */ }
+    }
+  }
+}
+
+// --- the staged brew --------------------------------------------------------
+function matchingBrew() {
+  if (!planData || !planData.fingerprint) return null;
+  return brews.find((b) => b.readable && b.fingerprint === planData.fingerprint) || null;
+}
+
+/** Stage a saved recipe: its parameters become the page's, and from here on every
+ *  edit is written back to it. Passing null stages "new" at the defaults. */
+async function stage(file) {
+  clearTimeout(saveTimer);
+  if (!file) {
+    staged = null; saveState = '';
+    params = {...config.defaults};
+    await refresh();
+    loadRecent();
+    return;
+  }
+  const r = await fetch('/api/recipe?file=' + encodeURIComponent(file));
+  const d = await r.json().catch(() => ({error: r.statusText}));
+  if (!r.ok || d.error) { alert(stale(r, d) || d.error); return; }
+  if (!d.editable) {
+    // Startable, but not something this generator can reproduce — so not something it
+    // can show as parameters either. Staging it would put a recipe's name over someone
+    // else's numbers, so it stays unstaged and you start it from the list.
+    alert(`\u201c${d.name}\u201d was not generated by this page, so its parameters ` +
+          `cannot be shown. You can still start it from the list.`);
+    return;
+  }
+  staged = {file: d.file, name: d.name};
+  saveState = 'saved';
+  justStaged = true;
+  params = {};
+  for (const k of Object.keys(config.defaults)) params[k] = d.params[k];
+  await refresh();
+  loadRecent();
+}
+
+/** Autosave. Only ever fires for a staged, editable, valid recipe. */
+function scheduleSave() {
+  if (justStaged) { justStaged = false; return; }
+  if (!staged || !planData || !planData.valid) return;
+  clearTimeout(saveTimer);
+  saveState = 'saving';
+  saveTimer = setTimeout(async () => {
+    try {
+      const d = await POST('/api/save', {file: staged.file, params});
+      staged = {...staged, name: d.name};     // an unnamed brew's name follows its numbers
+      saveState = 'saved';
+      loadRecent();
+    } catch (e) {
+      saveState = 'error: ' + e.message;
+    }
+    renderStaged();
+  }, 500);
+}
+
+function renderStaged() {
+  const box = $('staged'), name = $('staged-name'), btns = $('staged-btns');
+  const hit = !staged && matchingBrew();
+  box.className = staged ? 'saved' : 'fresh';
+  name.hidden = !staged;
+  if (staged && document.activeElement !== name) name.value = staged.name;
+  $('staged-what').textContent = staged ? 'Staged' : 'New brew';
+  $('staged-note').textContent = staged
+    ? ({saving: '\u2014 saving\u2026', saved: '\u2014 saved'}[saveState] || saveState)
+    : (hit ? `\u2014 not saved, but identical to \u201c${hit.name || hit.stem}\u201d`
+           : '\u2014 nothing saved brews this');
+
+  btns.innerHTML = '';
+  const add = (label, cls, fn, title) => {
+    const b = document.createElement('button');
+    b.className = 'small' + (cls ? ' ' + cls : '');
+    b.textContent = label;
+    if (title) b.title = title;
+    b.disabled = isRunning();
+    b.addEventListener('click', fn);
+    btns.appendChild(b);
+    return b;
+  };
+  // "New" is also the full reset: it always lands on an unsaved brew at the defaults,
+  // whether you were editing a file or had already wandered off the defaults in a new one.
+  const dirty = Object.keys(config.defaults).some((k) => params[k] !== config.defaults[k]);
+  if (staged || dirty) add('New', '', () => stage(null), 'Full reset: defaults, nothing saved');
+  if (staged) {
+    add('Fork', '', doFork, 'Save these settings as a new brew, and edit that instead');
+    add('Delete', 'danger', () => doDelete(staged.file, staged.name));
+  } else {
+    if (hit) add('Stage that one', '', () => stage(hit.file));
+    add('Save as a brew', 'primary', doFork, 'Write these settings to a new saved brew');
+  }
+  // Mark the row in the saved list too, so the two views agree.
+  document.querySelectorAll('.brew-row').forEach((row) => {
+    row.classList.toggle('current', !!staged && row.dataset.file === staged.file);
+    row.classList.toggle('twin', !staged && !!hit && row.dataset.file === hit.file);
+  });
+}
+
+async function doFork() {
+  try {
+    const d = await POST('/api/fork', {params, name: staged ? staged.name : planData.name});
+    await loadRecent();
+    await stage(d.file);
+  } catch (e) { alert(e.message); }
+}
+
+async function doDelete(file, label) {
+  if (!confirm(`Delete \u201c${label}\u201d? The file goes for good.`)) return;
+  try {
+    await POST('/api/delete', {file});
+    if (staged && staged.file === file) { staged = null; saveState = ''; }
+    await loadRecent();
+    renderStaged();
+  } catch (e) { alert(e.message); }
 }
 
 // --- the plan --------------------------------------------------------------
 function renderPlan(p) {
   planData = p;
-  $('recipe-name').textContent = p.name;
-  $('totals').innerHTML = [
-    ['dose', `${p.dose_g}`, 'g'],
-    ['ratio', `1:${p.ratio}`, ''],
-    ['water', `${p.total_ml}`, 'ml'],
-    ['grind', p.grind === 0 ? '<i>pre-ground</i>' : `${p.grind}`, ''],
-  ].map(([k, v, u]) => `<div class="total"><b>${v}</b><span>${k}${u ? ' · ' + u : ''}</span></div>`)
-   .join('');
 
-  const biggest = Math.max(...p.pours.map((x) => x.ml));
-  $('pours').innerHTML = p.pours.map((x, i) => `
-    <tr class="${i === 0 ? 'bloom' : ''}">
-      <td class="label">${x.label}</td>
-      <td class="ml">${x.ml}</td>
-      <td class="bar-cell"><span class="bar" style="width:${(x.ml / biggest * 100).toFixed(0)}%"></span></td>
-      <td>${x.temp_c} °C</td>
-      <td><span class="chip ${x.pattern}">${x.pattern}</span></td>
-      <td>${x.rpm || '<span class="muted">—</span>'}</td>
-      <td>${x.pause_s} s</td>
-    </tr>`).join('');
-
-  $('math').textContent =
-    `bloom ${p.bloom_ml} ml + ${p.n_main} × ${p.main_ml} ml = ${p.total_ml} ml  ·  ` +
-    `bloom ${p.bloom_x_dose}× dose (target ${p.bloom_target_x}×)  ·  ${p.filename}`;
+  // One line of prose: what this is, and every way it departs from the default.
+  // A sanity check you read left to right, not a second copy of the cards above.
+  const changed = lastRows.filter((r) => !r.is_default);
+  const who = esc(staged ? staged.name : 'New brew');
+  const head = changed.length
+    ? `<b>${who}</b> \u2014 off the defaults: <span class="chg">` +
+      changed.map((r) => `${esc(r.label.toLowerCase())} ${esc(r.display)}`).join(', ') +
+      `</span>`
+    : `<b>${who}</b> \u2014 every parameter at its default`;
+  // ...and the recipe those parameters generate, folded in: the pours, in order, with
+  // the temperature stepping down. Enough to sanity-check, nothing to read twice.
+  const temps = p.pours.map((x) => x.temp_c);
+  const pours = p.pours.map((x, i) =>
+    i === 0 ? `<em>${x.ml}</em>` : String(x.ml)).join(' + ');
+  $('summary').innerHTML = head +
+    `<span class="pours">${p.total_ml} ml = ${pours} \u00b7 ` +
+    `${temps[0]}\u2192${temps[temps.length - 1]} \u00b0C \u00b7 ` +
+    `${p.pours.length} pours \u00b7 ${p.grind === 0 ? 'pre-ground' : 'grind ' + p.grind}</span>`;
 
   const banners = [];
-  if (!p.valid) banners.push(`<div class="banner bad"><b>Invalid</b> ${p.error}</div>`);
+  if (!p.valid) banners.push(`<div class="banner bad"><b>Invalid</b> ${esc(p.error)}</div>`);
   if (p.oversize_ml) banners.push(
     `<div class="banner warn"><b>${p.oversize_ml} ml pour</b> — over the ${p.max_pour_ml} ml the ` +
     `app sends. The protocol splits it, but that frame shape is untested on hardware.</div>`);
   $('banners').innerHTML = banners.join('');
 
-  const busy = isRunning();
-  $('load').disabled = !p.valid || busy;
-  $('start').disabled = !p.valid || busy;
-  $('action-note').textContent = busy
-    ? 'A run is in progress.'
-    : 'Loading only arms the machine — you approve on it.';
+  scheduleSave();
+  syncBusy();
 }
 
 function query() {
@@ -362,42 +519,83 @@ function query() {
 async function refresh() {
   const r = await fetch('/api/plan?' + query());
   const p = await r.json();
-  if (p.error && !p.params) { $('banners').innerHTML = `<div class="banner bad">${p.error}</div>`; return; }
+  if (p.error && !p.params) { $('banners').innerHTML = `<div class="banner bad">${esc(p.error)}</div>`; return; }
   renderParams(p.rows);
   renderPlan(p);
 }
 
-// --- recent ----------------------------------------------------------------
+// --- saved brews ------------------------------------------------------------
 async function loadRecent() {
   const d = await (await fetch('/api/recent')).json();
-  $('recent-dir').textContent = d.dir;
-  if (!d.brews.length) { $('recent').innerHTML = '<div class="muted">No cached brews yet.</div>'; return; }
-  $('recent').innerHTML = d.brews.map((b) => `
-    <div class="brew-row">
-      <div><div class="file">${b.file}</div><div class="sum">${b.summary}</div></div>
-      <div class="age">${b.age}</div>
+  brews = d.brews;
+  if (!brews.length) {
+    $('recent').innerHTML = '<div class="muted">No saved brews yet.</div>';
+    renderStaged();
+    return;
+  }
+  $('recent').innerHTML = brews.map((b) => `
+    <div class="brew-row" data-file="${esc(b.file)}">
       <div>
-        <button class="small" data-load="${b.file}" ${b.readable ? '' : 'disabled'}>Load</button>
-        <button class="small danger" data-start="${b.file}" ${b.readable ? '' : 'disabled'}>Start</button>
+        <input class="name-edit" value="${esc(b.name || b.stem)}"
+               ${b.readable ? '' : 'disabled'} spellcheck="false">
+        <div class="sum">${esc(b.summary)}</div>
+      </div>
+      <div class="age">${b.brewed ? 'brewed ' : 'saved '}${esc(b.age)}</div>
+      <div class="btns">
+        <button class="small" data-stage="${esc(b.file)}" ${b.readable ? '' : 'disabled'}>Stage</button>
+        <button class="small danger" data-start="${esc(b.file)}" ${b.readable ? '' : 'disabled'}>Brew</button>
+        <button class="small ghost" data-del="${esc(b.file)}" title="Delete">\u2715</button>
       </div>
     </div>`).join('');
-  $('recent').querySelectorAll('[data-load]').forEach((btn) =>
-    btn.addEventListener('click', () => go({file: btn.dataset.load}, false)));
+  $('recent').querySelectorAll('[data-stage]').forEach((btn) =>
+    btn.addEventListener('click', () => stage(btn.dataset.stage)));
+  // Starting a saved brew stages it first, so the page is showing what is brewing.
   $('recent').querySelectorAll('[data-start]').forEach((btn) =>
-    btn.addEventListener('click', () => openStart({file: btn.dataset.start})));
+    btn.addEventListener('click', async () => {
+      await stage(btn.dataset.start);
+      openStart({file: btn.dataset.start});
+    }));
+  $('recent').querySelectorAll('[data-del]').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      const b = brews.find((x) => x.file === btn.dataset.del);
+      doDelete(btn.dataset.del, b ? (b.name || b.stem) : btn.dataset.del);
+    }));
+  $('recent').querySelectorAll('.name-edit').forEach((input) => {
+    const file = input.closest('.brew-row').dataset.file;
+    const was = input.value;
+    const save = async () => {
+      const name = input.value.trim();
+      if (name === was) return;
+      if (!name) { input.value = was; return; }
+      try {
+        const d = await POST('/api/rename', {file, name});
+        if (staged && staged.file === file) staged = {...staged, file: d.file, name: d.name};
+        await loadRecent();
+      } catch (e) { alert(e.message); input.value = was; }
+    };
+    input.addEventListener('blur', save);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+      if (e.key === 'Escape') { input.value = was; input.blur(); }
+    });
+  });
+  renderStaged();
 }
 
 // --- running ---------------------------------------------------------------
 let currentRun = null;
 const isRunning = () => currentRun && !currentRun.done;
 
-async function go(body, start) {
+/** Start a brew. The only call on this page that reaches the machine. */
+async function go(body) {
   try {
-    const d = await POST(start ? '/api/start' : '/api/load', body);
+    const d = await POST('/api/start', body);
     logSince = 0; $('run-log').textContent = '';
     showRun(d.run);
     poll();
-    loadRecent();
+    await loadRecent();
+    // Starting an unsaved brew wrote it to the cache — stage what actually ran.
+    if (!staged && d.run.file) await stage(d.run.file);
   } catch (e) {
     alert(e.message);
   }
@@ -406,13 +604,15 @@ async function go(body, start) {
 function showRun(run) {
   currentRun = run;
   $('run-panel').hidden = false;
-  const tag = $('run-tag');
-  if (!run.done) { tag.textContent = run.started_brew ? 'brewing' : 'loading'; tag.className = 'tag live'; }
-  else { tag.textContent = run.returncode === 0 ? 'finished' : `exit ${run.returncode}`; tag.className = 'tag done'; }
-  $('run-name').textContent = run.recipe;
-  $('run-meta').textContent = `${run.mode} · ${run.file} · ${run.elapsed}s`;
-  $('run-stop').disabled = run.done;
-  if (planData) renderPlan(planData);
+  syncBusy();
+}
+
+/** Brew and the staged-bar buttons follow whether a run is live. This must not go back
+ *  through renderPlan: that schedules an autosave, and polling would then rewrite the
+ *  staged file every second for as long as the brew runs. */
+function syncBusy() {
+  $('start').disabled = !planData || !planData.valid || isRunning();
+  renderStaged();
 }
 
 async function poll() {
@@ -432,48 +632,49 @@ async function poll() {
 
 // --- the start gate --------------------------------------------------------
 function openStart(from) {
-  pending = from || {};
-  const name = from && from.file
-    ? (planData && from.name) || from.file.replace(/\.yaml$/, '')
-    : planData.name;
-  $('start-name').value = name;
-  $('start-ack').checked = false;
-  $('start-go').disabled = true;
-  $('start-summary').textContent = from && from.file
-    ? from.file
+  pending = from || (staged ? {file: staged.file} : {});
+  const file = pending.file;
+  const cached = file ? brews.find((b) => b.file === file) : null;
+  // Shown, not asked for: the name is whatever the brew is already called.
+  pending.name = cached ? (cached.name || cached.stem) : planData.name;
+  $('start-name').textContent = pending.name;
+  $('start-summary').textContent = cached
+    ? cached.summary
     : `${planData.dose_g} g · 1:${planData.ratio} · ${planData.total_ml} ml · ` +
       `${planData.pours.length} pours · ${planData.grind === 0 ? 'pre-ground' : 'grind ' + planData.grind}`;
   $('start-dialog').showModal();
 }
 
-$('start-ack').addEventListener('change', (e) => { $('start-go').disabled = !e.target.checked; });
 $('start-cancel').addEventListener('click', () => $('start-dialog').close());
 $('start-go').addEventListener('click', () => {
-  const body = {acknowledge: true, name: $('start-name').value.trim()};
+  // The click on this button is the acknowledgement the server insists on.
+  const body = {acknowledge: true, name: pending.name};
   if (pending && pending.file) body.file = pending.file; else body.params = params;
   $('start-dialog').close();
-  go(body, true);
+  go(body);
 });
 
-$('load').addEventListener('click', () => go({params}, false));
 $('start').addEventListener('click', () => openStart(null));
-$('reset').addEventListener('click', () => { params = {...config.defaults}; refresh(); });
-$('show-yaml').addEventListener('click', () => {
-  $('yaml-text').textContent = planData.yaml;
-  $('yaml-dialog').showModal();
+// The staged file's name, edited in place.
+$('staged-name').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); }
+  if (e.key === 'Escape') { e.target.value = staged.name; e.target.blur(); }
 });
-$('yaml-close').addEventListener('click', () => $('yaml-dialog').close());
-$('run-stop').addEventListener('click', async () => {
-  await POST('/api/run/stop', {});
-  poll();
+$('staged-name').addEventListener('blur', async () => {
+  const name = $('staged-name').value.trim();
+  if (!staged || !name || name === staged.name) { renderStaged(); return; }
+  try {
+    const d = await POST('/api/rename', {file: staged.file, name});
+    staged = {...staged, file: d.file, name: d.name};
+    await loadRecent();
+  } catch (e) { alert(e.message); }
+  renderStaged();
 });
 
 // --- boot -----------------------------------------------------------------
 (async function init() {
   config = await (await fetch('/api/config')).json();
   params = {...config.defaults};
-  $('meta').textContent = `machine ${config.address} · telemetry ${config.timeout}s` +
-    (config.debug ? ' · frame log on' : '');
   await refresh();
   await loadRecent();
   await poll();

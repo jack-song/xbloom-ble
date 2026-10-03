@@ -214,3 +214,108 @@ def test_run_brew_dry_run_executes_nothing():
     argv, rc = brewgen.run_brew("/tmp/r.yaml", dry_run=True,
                                 runner=lambda a: seen.append(a) or 7)
     assert rc == 0 and seen == [] and argv
+
+
+# --- reading a cached recipe back into parameters ----------------------------
+def test_params_round_trip_through_the_yaml():
+    p = brewgen.BrewParams(dose=15.0, ratio=16.0, temp=88, bloom_time=60, pattern="center",
+                           pours=2, pause=25, rpm=80, flow=4.0, grind=30)
+    back = brewgen.params_from_yaml(brewgen.to_yaml(p))
+    assert back == p
+
+
+def test_params_are_recovered_from_a_file_with_no_params_line():
+    """Files cached before the parameter line still stage — via the self-checked
+    reconstruction, which only answers when re-rendering reproduces the pours."""
+    p = brewgen.BrewParams(dose=15.0, ratio=16.0, temp=88)
+    older = "\n".join(line for line in brewgen.to_yaml(p).splitlines()
+                      if not line.startswith(brewgen.PARAMS_MARK)) + "\n"
+    assert brewgen.params_from_yaml(older) == p
+
+
+def test_params_are_none_for_a_recipe_we_did_not_generate():
+    assert brewgen.params_from_yaml("name: Hand\ndose_g: 10\nratio: 17\ngrind: 0\n") is None
+
+
+def test_the_params_line_is_a_comment_so_it_stays_out_of_the_fingerprint():
+    p = brewgen.BrewParams(dose=15.0)
+    assert brewgen.PARAMS_MARK not in brewgen.fingerprint(brewgen.to_yaml(p))
+
+
+def test_save_cached_rewrites_in_place_and_keeps_a_custom_name(tmp_path):
+    p = brewgen.BrewParams(dose=15.0, name="Morning")
+    path, _ = brewgen.write_cached(p, tmp_path)
+    brewgen.save_cached(path, brewgen.BrewParams(dose=15.0, temp=85))
+    assert path.exists()                                   # same file, not a new one
+    assert brewgen.cached_name(path) == "Morning"
+    assert brewgen.params_from_yaml(path.read_text(encoding="utf-8")).temp == 85
+
+
+def test_fork_cached_never_returns_an_existing_file(tmp_path):
+    p = brewgen.BrewParams(dose=15.0)
+    first, _ = brewgen.write_cached(p, tmp_path)
+    forks = [brewgen.fork_cached(p, tmp_path) for _ in range(3)]
+    assert len({first, *forks}) == 4
+    assert [brewgen.cached_name(f) for f in forks] == [
+        "Gen 15g 1:17 spiral 3p copy", "Gen 15g 1:17 spiral 3p copy 2",
+        "Gen 15g 1:17 spiral 3p copy 3"]
+
+
+def test_delete_cached_removes_the_file(tmp_path):
+    path, _ = brewgen.write_cached(brewgen.BrewParams(dose=15.0), tmp_path)
+    brewgen.delete_cached(path)
+    assert not path.exists()
+
+
+# --- saved brews are ordered by when they were last *brewed* ------------------
+def test_recent_brews_orders_by_last_brewed_not_last_written(tmp_path):
+    import os
+    a, _ = brewgen.write_cached(brewgen.BrewParams(dose=11.0), tmp_path)
+    b, _ = brewgen.write_cached(brewgen.BrewParams(dose=12.0), tmp_path)
+    c, _ = brewgen.write_cached(brewgen.BrewParams(dose=13.0), tmp_path)
+    for n, f in enumerate((a, b, c)):
+        os.utime(f, (1_000_000 + n, 1_000_000 + n))         # written a < b < c
+    brewgen.mark_brewed(a, tmp_path, when=2_000_000)        # ...but a was brewed last
+    brewgen.mark_brewed(b, tmp_path, when=1_500_000)
+    got = brewgen.recent_brews(tmp_path, limit=10)
+    assert [x.path for x in got] == [a, b, c]
+    assert [x.brewed for x in got] == [True, True, False]
+
+
+def test_editing_a_brew_does_not_count_as_brewing_it(tmp_path):
+    a, _ = brewgen.write_cached(brewgen.BrewParams(dose=11.0), tmp_path)
+    b, _ = brewgen.write_cached(brewgen.BrewParams(dose=12.0), tmp_path)
+    brewgen.mark_brewed(a, tmp_path, when=1_000)
+    brewgen.mark_brewed(b, tmp_path, when=2_000)
+    brewgen.save_cached(a, brewgen.BrewParams(dose=11.0, temp=85))   # autosave touches a
+    assert [x.path for x in brewgen.recent_brews(tmp_path)] == [b, a]
+
+
+def test_the_brewed_time_follows_a_rename_and_goes_with_a_delete(tmp_path):
+    a, _ = brewgen.write_cached(brewgen.BrewParams(dose=11.0), tmp_path)
+    brewgen.mark_brewed(a, tmp_path, when=1_000)
+    moved = brewgen.rename_cached(a, "Morning", tmp_path)
+    assert brewgen.recent_brews(tmp_path)[0].brewed is True
+    brewgen.delete_cached(moved, tmp_path)
+    assert brewgen.recent_brews(tmp_path) == []
+    assert brewgen._ledger(tmp_path) == {}
+
+
+def test_the_ledger_is_not_a_recipe(tmp_path):
+    a, _ = brewgen.write_cached(brewgen.BrewParams(dose=11.0), tmp_path)
+    brewgen.mark_brewed(a, tmp_path)
+    assert len(brewgen.recent_brews(tmp_path)) == 1
+    with pytest.raises(ParamError):
+        brewgen.resolve_cached(brewgen.BREWED_LEDGER, tmp_path)
+
+
+def test_autosave_keeps_an_unchosen_name_tracking_the_parameters(tmp_path):
+    path, _ = brewgen.write_cached(brewgen.BrewParams(dose=10.0), tmp_path)
+    brewgen.save_cached(path, brewgen.BrewParams(dose=12.0))
+    assert brewgen.cached_name(path) == "Gen 12g 1:17 spiral 3p"
+
+
+def test_autosave_does_not_overwrite_a_name_somebody_typed(tmp_path):
+    path, _ = brewgen.write_cached(brewgen.BrewParams(dose=10.0, name="Morning"), tmp_path)
+    brewgen.save_cached(path, brewgen.BrewParams(dose=12.0))
+    assert brewgen.cached_name(path) == "Morning"

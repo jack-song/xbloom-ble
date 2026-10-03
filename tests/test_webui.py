@@ -79,7 +79,7 @@ def test_page_is_served(server):
     with urllib.request.urlopen(server.base + "/", timeout=10) as r:
         body = r.read().decode()
     assert r.status == 200
-    assert "xBloom brew generator" in body
+    assert "<h1>xBloom brew</h1>" in body
     assert r.headers["Content-Type"].startswith("text/html")
 
 
@@ -266,3 +266,87 @@ def test_run_json_paginates_the_log():
     assert run.to_json()["lines"] == ["one", "two", "three"]
     assert run.to_json()["next"] == 3
     assert run.to_json(since=2)["lines"] == ["three"]
+
+
+# --- staging: read a saved recipe back, edit it, fork it, delete it ----------
+def test_recipe_reads_a_cached_brew_back_as_parameters(server):
+    path, _ = brewgen.write_cached(brewgen.BrewParams(dose=15.0, temp=88), server.root)
+    status, data = get(server, "/api/recipe?file=" + path.name)
+    assert status == 200 and data["editable"] is True
+    assert data["params"]["dose"] == 15.0 and data["params"]["temp"] == 88
+    assert data["fingerprint"] == brewgen.fingerprint(path.read_text(encoding="utf-8"))
+
+
+def test_recipe_marks_a_hand_written_file_as_not_editable(server):
+    path = brewgen.cache_dir(server.root)
+    path.mkdir(parents=True, exist_ok=True)
+    (path / "2000-01-01-hand.yaml").write_text(
+        "name: Hand\ndose_g: 10\ngrind: 0\nratio: 17\npours:\n"
+        "  - {label: Bloom, ml: 29, temp_c: 91, pattern: spiral, pause_s: 50, rpm: 60, "
+        "flow_ml_s: 3.5, agitation: false, vibrate_before: false}\n", encoding="utf-8")
+    status, data = get(server, "/api/recipe?file=2000-01-01-hand.yaml")
+    assert status == 200 and data["editable"] is False and data["params"] is None
+
+
+def test_save_rewrites_the_staged_file_without_moving_it(server):
+    path, _ = brewgen.write_cached(brewgen.BrewParams(dose=15.0), server.root)
+    status, data = post(server, "/api/save",
+                        {"file": path.name, "params": {"dose": 15, "temp": 85}})
+    assert status == 200 and data["file"] == path.name
+    assert brewgen.params_from_yaml(path.read_text(encoding="utf-8")).temp == 85
+    assert server.launched == []            # saving a file is not brewing one
+
+
+def test_save_refuses_an_invalid_recipe(server):
+    path, _ = brewgen.write_cached(brewgen.BrewParams(dose=15.0), server.root)
+    before = path.read_text(encoding="utf-8")
+    status, data = post(server, "/api/save", {"file": path.name, "params": {"dose": 0}})
+    assert status == 400 and "not saved" in data["error"]
+    assert path.read_text(encoding="utf-8") == before
+
+
+def test_fork_makes_a_second_file_and_leaves_the_first_alone(server):
+    path, _ = brewgen.write_cached(brewgen.BrewParams(dose=15.0), server.root)
+    status, data = post(server, "/api/fork", {"params": {"dose": 15}})
+    assert status == 200 and data["file"] != path.name
+    assert data["name"].endswith("copy")
+    assert path.exists()
+    assert len(list(brewgen.cache_dir(server.root).glob("*.yaml"))) == 2
+    assert server.launched == []
+
+
+def test_delete_removes_one_cached_recipe(server):
+    path, _ = brewgen.write_cached(brewgen.BrewParams(dose=15.0), server.root)
+    status, data = post(server, "/api/delete", {"file": path.name})
+    assert status == 200 and data["deleted"] == path.name
+    assert not path.exists()
+    assert server.launched == []
+
+
+def test_save_fork_and_delete_need_the_local_header(server):
+    path, _ = brewgen.write_cached(brewgen.BrewParams(dose=15.0), server.root)
+    for route, body in (("/api/save", {"file": path.name, "params": {"dose": 12}}),
+                        ("/api/fork", {"params": {"dose": 12}}),
+                        ("/api/delete", {"file": path.name}),
+                        ("/api/rename", {"file": path.name, "name": "X"})):
+        status, _ = post(server, route, body, local=False)
+        assert status == 403, route
+    assert path.exists() and len(list(brewgen.cache_dir(server.root).glob("*.yaml"))) == 1
+
+
+def test_delete_cannot_escape_the_cache_directory(server):
+    outside = server.root / "secret.yaml"
+    outside.write_text("name: nope\n", encoding="utf-8")
+    status, _ = post(server, "/api/delete", {"file": "../secret.yaml"})
+    assert status == 400 and outside.exists()
+
+
+def test_only_a_start_marks_a_brew_as_brewed(server):
+    path, _ = brewgen.write_cached(brewgen.BrewParams(dose=15.0), server.root)
+    post(server, "/api/load", {"file": path.name})
+    post(server, "/api/save", {"file": path.name, "params": {"dose": 15, "temp": 85}})
+    assert get(server, "/api/recent")[1]["brews"][0]["brewed"] is False
+    status, _ = post(server, "/api/start", {"file": path.name, "acknowledge": True,
+                                            "name": "Mine"})
+    assert status == 200
+    assert get(server, "/api/recent")[1]["brews"][0]["brewed"] is True

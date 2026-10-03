@@ -19,6 +19,7 @@ the web UI — because only the front-end can tell whether anyone answered.
 
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 import sys
@@ -187,6 +188,7 @@ class BrewParams:
             "unit": p.unit.strip(),
             "choices": list(p.choices) if p.choices else None,
             "default": p.default,
+            "default_display": p.show(p.default),
             "is_default": getattr(self, p.key) == p.default,
             "lo": p.lo,
             "hi": p.hi,
@@ -238,6 +240,10 @@ def to_yaml(p: BrewParams) -> str:
         f"# {p.pours} main pours come out exactly equal at {main_ml} ml and Σ = {total} ml "
         f"= dose x ratio).",
         f"# Temps step down 1 C per pour from {int(p.temp)} C. No vibration on any pour.",
+        # The parameters, verbatim, so the file can be read back into the generator.
+        # A comment, so it is not part of the recipe the machine sees and not part of
+        # fingerprint(): two files that brew the same thing still match.
+        params_line(p),
         f"name: {name}",
         f"dose_g: {p.dose:g}",
         f"grind: {p.grind}",
@@ -253,6 +259,93 @@ def to_yaml(p: BrewParams) -> str:
     return "\n".join(lines) + "\n"
 
 
+PARAMS_MARK = "# params: "
+
+
+def params_line(p: BrewParams) -> str:
+    """The parameter set as one comment line, e.g. ``# params: dose=10 ratio=17 ...``.
+
+    This is what makes a cached file *editable* rather than merely brewable. The YAML
+    body is pours — the generator's output — and several parameters (bloom_time, pause,
+    rpm) only reach it indirectly, so recovering them from the pours means reversing the
+    formulas. Writing them down instead costs one line and cannot drift.
+    """
+    def fmt(v: Any) -> str:
+        return f"{v:g}" if isinstance(v, float) else str(v)
+    return PARAMS_MARK + " ".join(f"{k}={fmt(getattr(p, k))}" for k in param_keys())
+
+
+def params_from_yaml(text: str) -> BrewParams | None:
+    """The parameters a cached recipe was generated from, or None if they can't be
+    recovered — a hand-written recipe, or one this generator did not produce.
+
+    Files written since :func:`params_line` existed carry them outright. For an older
+    file there is a fallback, but it is only trusted when it *proves* itself: the
+    recovered parameters are re-rendered and the result must match the file's own pours
+    block. A recipe we would regenerate differently is not one we offer to edit in
+    place, because editing it would silently rewrite what it brews.
+    """
+    for line in text.splitlines():
+        if line.startswith(PARAMS_MARK):
+            data: dict[str, Any] = {}
+            for pair in line[len(PARAMS_MARK):].split():
+                key, _, val = pair.partition("=")
+                if key in PARAMS_BY_KEY:
+                    data[key] = val
+            try:
+                out = BrewParams.from_mapping(data)
+            except ParamError:
+                return None
+            return _with_name(out, text)
+    return _recovered(text)
+
+
+def _recovered(text: str) -> BrewParams | None:
+    """Best-effort reconstruction for a file with no ``# params:`` line, self-checked
+    against the file's pours. → None unless the round-trip is exact."""
+    body = _pours_block(text)
+    if len(body) < 2:
+        return None
+    try:
+        head = dict(re.findall(r"^(dose_g|ratio|grind): (\S+)$", text, re.M))
+        bloom, first, last = body[0], body[1], body[-1]
+        out = BrewParams(
+            dose=float(head["dose_g"]), ratio=float(head["ratio"]),
+            grind=int(head["grind"]), temp=int(bloom["temp_c"]),
+            bloom_time=int(bloom["pause_s"]), pattern=bloom["pattern"],
+            pours=len(body) - 1, pause=int(first["pause_s"]),
+            rpm=int(last["rpm"]) or int(first["rpm"]), flow=float(first["flow_ml_s"]),
+        )
+    except (KeyError, ValueError, IndexError):
+        return None
+    return _with_name(out, text) if _pours_block(to_yaml(out)) == body else None
+
+
+def _with_name(p: BrewParams, text: str) -> BrewParams:
+    """Attach the file's ``name:`` — but only when it is *custom*. A name equal to the
+    derived one must stay None, or cache_filename() would append its slug and a fork of
+    an unrenamed brew would file itself under a doubled name."""
+    nm = cached_name_from(text)
+    p.name = nm if nm and nm != derived_name(p) else None
+    return p
+
+
+def _pours_block(text: str) -> list[dict[str, str]]:
+    """The ``pours:`` entries as plain key→string dicts. Parsing the one inline-mapping
+    shape :func:`to_yaml` writes; anything else yields nothing, which is the answer."""
+    out = []
+    for line in text.splitlines():
+        m = re.match(r"^  - \{(.+)\}$", line)
+        if m:
+            out.append(dict(kv.split(": ", 1) for kv in m.group(1).split(", ") if ": " in kv))
+    return out
+
+
+def cached_name_from(text: str) -> str | None:
+    m = re.search(r"^name: (.+)$", text, re.M)
+    return m.group(1).strip() if m else None
+
+
 def validate_yaml(text: str) -> str | None:
     """→ None if the recipe is valid, else the validator's message. Uses the real
     Recipe model, so a front-end shows exactly what ``xbloom validate`` would say."""
@@ -264,6 +357,24 @@ def validate_yaml(text: str) -> str | None:
     except RecipeError as exc:
         return str(exc)
     return None
+
+
+def fingerprint(text: str) -> str:
+    """A stable identity for *what a recipe brews*, derived from its YAML text.
+
+    Comments and the ``name:`` line are stripped: they describe the recipe, they are not
+    part of it. Two files with the same fingerprint put the same water, at the same
+    temperature, through the same grounds — whatever they happen to be called. That is
+    the question a front-end is asking when it wants to know "have I brewed this before?",
+    and it is a stricter test than comparing cache filenames, which carry today's date.
+    """
+    keep = [
+        line.rstrip()
+        for line in text.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+        and not line.startswith("name:")
+    ]
+    return "\n".join(keep)
 
 
 def oversize(p: BrewParams) -> int | None:
@@ -318,6 +429,7 @@ class BrewPlan:
             "oversize_ml": self.oversize_ml,
             "max_pour_ml": APP_MAX_POUR_ML,
             "filename": self.filename,
+            "fingerprint": fingerprint(self.yaml),
         }
 
 
@@ -404,6 +516,47 @@ def write_cached(p: BrewParams, root: str | Path | None = None,
     return path, False
 
 
+BREWED_LEDGER = ".brewed.json"
+
+
+def _ledger(root: str | Path | None) -> dict[str, float]:
+    """``{filename: epoch seconds}`` of when each cached recipe last *started a brew*.
+
+    It lives beside the recipes rather than inside them on purpose. A recipe file is the
+    record of what a brew was (see :func:`renamed_copy`) and is also rewritten by
+    autosave, so neither its contents nor its mtime can answer "when did I last brew
+    this?" — editing a brew would otherwise count as brewing it. The leading dot keeps
+    it out of the ``*.yaml`` glob and past :func:`resolve_cached`'s dotfile refusal.
+    """
+    try:
+        data = json.loads((cache_dir(root) / BREWED_LEDGER).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {k: float(v) for k, v in data.items()} if isinstance(data, dict) else {}
+
+
+def _save_ledger(root: str | Path | None, ledger: dict[str, float]) -> None:
+    (cache_dir(root) / BREWED_LEDGER).write_text(json.dumps(ledger, indent=1), encoding="utf-8")
+
+
+def mark_brewed(path: Path, root: str | Path | None = None, when: float | None = None) -> None:
+    """Record that ``path`` just started a brew. Called only from the start route."""
+    ledger = _ledger(root)
+    ledger[path.name] = when if when is not None else datetime.now().timestamp()
+    _save_ledger(root, ledger)
+
+
+def _forget_or_move(root: str | Path | None, old: str, new: str | None) -> None:
+    """Keep the ledger true across a rename (``new`` set) or a delete (``new`` None)."""
+    ledger = _ledger(root)
+    if old not in ledger:
+        return
+    when = ledger.pop(old)
+    if new:
+        ledger[new] = when
+    _save_ledger(root, ledger)
+
+
 def cached_name(path: Path) -> str | None:
     """The ``name:`` a cached recipe already carries, for use as a gate's default."""
     m = re.search(r"^name: (.+)$", path.read_text(encoding="utf-8"), re.M)
@@ -427,19 +580,116 @@ def renamed_copy(path: Path, new_name: str, root: str | Path | None = None) -> P
     return out
 
 
+def rename_cached(path: Path, new_name: str, root: str | Path | None = None) -> Path:
+    """Rename a cached brew **in place**: rewrite its ``name:`` and move the file to
+    match. → the new path (``path`` itself when the name was already right).
+
+    This is the deliberate counterpart to :func:`renamed_copy`. That one is used on the
+    brew path, where the cached file is the record of something that already happened and
+    must stay byte-stable, so it forks. This one is the user editing a label in a list:
+    they mean *this entry*, and leaving a stale duplicate behind would be the surprise.
+
+    The fingerprint (:func:`fingerprint`) is untouched by a rename, so a renamed entry
+    still matches the same parameters.
+    """
+    new_name = new_name.strip()
+    if not new_name:
+        raise ParamError("a brew needs a name")
+    if "\n" in new_name or len(new_name) > 80:
+        raise ParamError("that name is too long, or has a line break in it")
+    text = path.read_text(encoding="utf-8")
+    if cached_name(path) == new_name:
+        return path
+    text = re.sub(r"^name: .+$", f"name: {new_name}", text, count=1, flags=re.M)
+    # The header comment is the recipe's title too; keep it from contradicting `name:`.
+    text = re.sub(r"\A# .+$", f"# {new_name}", text, count=1, flags=re.M)
+
+    stamp = path.name.split("-")[:3]
+    prefix = "-".join(stamp) if len(stamp) == 3 else date.today().isoformat()
+    out = path.with_name(f"{prefix}-{name_slug(new_name)}.yaml")
+    n = 2
+    while out.exists() and out != path:        # two brews may share a slug on one day
+        out = path.with_name(f"{prefix}-{name_slug(new_name)}-{n}.yaml")
+        n += 1
+    path.write_text(text, encoding="utf-8")
+    if out != path:
+        path.rename(out)
+        _forget_or_move(root, path.name, out.name)
+    return out
+
+
+
+def save_cached(path: Path, p: BrewParams) -> Path:
+    """Write ``p`` over an existing cache entry, keeping its custom name. → ``path``.
+
+    This is the autosave behind an edited staged brew. The **filename does not move**:
+    it records which parameters were non-default when the entry was created, and
+    rewriting it on every keystroke would leave a trail of files and break any link
+    anyone holds. :func:`rename_cached` is the one thing that moves a file.
+    """
+    if not path.exists():
+        raise ParamError(f"{path.name} is gone — nothing to save over")
+    text = path.read_text(encoding="utf-8")
+    p = replace(p)
+    p.name = cached_name_from(text)
+    # A name that was just the old parameters' derived name was never chosen — it keeps
+    # tracking the parameters. Anything else is a name somebody typed, and stays.
+    before = params_from_yaml(text)
+    if before is not None and p.name == derived_name(replace(before, name=None)):
+        p.name = None
+    path.write_text(to_yaml(p), encoding="utf-8")
+    return path
+
+
+def fork_cached(p: BrewParams, root: str | Path | None = None,
+                name: str | None = None) -> Path:
+    """Copy the current parameters into a **new** cache entry. → its path.
+
+    The point of a fork is to stop editing what you had and start editing a copy, so
+    unlike :func:`write_cached` it never hands back an existing file. The copy's *name*
+    gets the "copy" suffix; its *filename* gets a plain ``-copy``/``-copy-2``, rather
+    than the name's slug, so a chain of forks does not grow a filename to match.
+    """
+    base = (name or derived_name(p)).strip()
+    if not base:
+        raise ParamError("a fork needs a name")
+    plain = derived_name(replace(p, name=None))
+    stem = cache_path(replace(p, name=None if base == plain else base), root).stem
+    out = replace(p, name=f"{base} copy")
+    path = cache_dir(root) / f"{stem}-copy.yaml"
+    n = 2
+    while path.exists():
+        out = replace(p, name=f"{base} copy {n}")
+        path = cache_dir(root) / f"{stem}-copy-{n}.yaml"
+        n += 1
+    return write_cached(out, root, out=path)[0]
+
+
+def delete_cached(path: Path, root: str | Path | None = None) -> None:
+    """Remove one cache entry. Only ever reached through :func:`resolve_cached`, so the
+    path is a bare filename inside the cache directory and nothing else."""
+    if path.suffix != ".yaml":
+        raise ParamError("that is not a cached recipe")
+    path.unlink(missing_ok=True)
+    _forget_or_move(root, path.name, None)
+
+
 @dataclass
 class CachedBrew:
     """One cached recipe file, summarised for a list."""
 
     path: Path
     summary: str                 # "10 g  1:17  170 ml  4 pours  pre-ground", or why not
-    age: str                     # "today" / "yesterday" / "5d ago"
+    age: str                     # "today" / "yesterday" / "5d ago" — since brewed, else saved
     readable: bool
     name: str | None = None
+    fingerprint: str = ""        # see fingerprint(): identity of what it brews
+    brewed: bool = False         # has it ever started a brew? (age then counts from that)
 
     def to_json(self) -> dict[str, Any]:
-        return {"file": self.path.name, "summary": self.summary, "age": self.age,
-                "readable": self.readable, "name": self.name}
+        return {"file": self.path.name, "stem": self.path.stem, "summary": self.summary,
+                "age": self.age, "readable": self.readable, "name": self.name,
+                "fingerprint": self.fingerprint, "brewed": self.brewed}
 
 
 def describe(path: Path) -> tuple[str, bool]:
@@ -454,22 +704,36 @@ def describe(path: Path) -> tuple[str, bool]:
         return f"unreadable — {exc}", False
 
 
-def age(path: Path) -> str:
-    days = (datetime.now() - datetime.fromtimestamp(path.stat().st_mtime)).days
+def age(path: Path, when: float | None = None) -> str:
+    """Days since ``when`` (an epoch), or since the file was last written."""
+    stamp = when if when is not None else path.stat().st_mtime
+    days = (datetime.now() - datetime.fromtimestamp(stamp)).days
     return "today" if days == 0 else "yesterday" if days == 1 else f"{days}d ago"
 
 
 def recent_brews(root: str | Path | None = None, limit: int = 5) -> list[CachedBrew]:
-    """The most recently written cached recipes, newest first."""
+    """Cached recipes, most recently **brewed** first.
+
+    Anything that has never started a brew follows, newest-written first — it is still
+    worth listing, it just has not earned a place above something you actually made.
+    """
     d = cache_dir(root)
     if not d.is_dir():
         return []
-    files = sorted(d.glob("*.yaml"), key=lambda f: f.stat().st_mtime, reverse=True)[:limit]
+    ledger = _ledger(root)
+    # (has been brewed, when): True sorts above False, then the later time first.
+    files = sorted(
+        d.glob("*.yaml"),
+        key=lambda f: (f.name in ledger, ledger.get(f.name, f.stat().st_mtime)),
+        reverse=True)[:limit]
     out = []
     for f in files:
         summary, ok = describe(f)
-        out.append(CachedBrew(path=f, summary=summary, age=age(f), readable=ok,
-                              name=cached_name(f) if ok else None))
+        text = f.read_text(encoding="utf-8") if ok else ""
+        out.append(CachedBrew(path=f, summary=summary, age=age(f, ledger.get(f.name)),
+                              readable=ok, name=cached_name(f) if ok else None,
+                              fingerprint=fingerprint(text) if ok else "",
+                              brewed=f.name in ledger))
     return out
 
 
