@@ -89,6 +89,30 @@ def test_temperatures_for_every_pour_count():
                    4: [80, 91, 90, 89, 87], 5: [80, 91, 90, 89, 88, 86]}
 
 
+def test_pauses_grow_four_seconds_per_main_pour():
+    """The bloom waits bloom_time; the first main pour waits ``pause`` (15 s by default)
+    and each one after waits 4 s longer — the same shape as the temperature step."""
+    assert BrewParams.defaults().pause == 15
+    p = brewgen.plan(BrewParams.defaults())
+    assert [x["pause_s"] for x in p.pours] == [50, 15, 19, 23]
+    five = brewgen.plan(BrewParams(pause=20, bloom_time=40, pours=5))
+    assert [x["pause_s"] for x in five.pours] == [40, 20, 24, 28, 32, 36]
+
+
+def test_migrating_a_flat_pause_recipe_keeps_its_pause_as_the_first_wait(tmp_path):
+    """A recipe saved when every main pour waited the same ``pause`` no longer re-renders
+    from its params line; migration keeps that pause as the first wait and grows from it."""
+    text = brewgen.to_yaml(BrewParams(pause=20))
+    text = text.replace("pause_s: 24", "pause_s: 20").replace("pause_s: 28", "pause_s: 20")
+    assert brewgen.params_from_yaml(text) is None
+    path = tmp_path / "2026-01-01-flat.yaml"
+    path.write_text(text, encoding="utf-8")
+    assert brewgen.migrate_cached(path) is True
+    got = brewgen.params_from_yaml(path.read_text(encoding="utf-8"))
+    assert got is not None and got.pause == 20
+    assert [x["pause_s"] for x in brewgen.build_pours(got)] == [50, 20, 24, 28]
+
+
 def test_up_to_five_main_pours_plan_and_validate():
     for n in (2, 3, 4, 5):
         p = brewgen.plan(BrewParams(pours=n))

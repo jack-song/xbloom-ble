@@ -8,8 +8,8 @@ It never prints, never prompts, and never imports a UI toolkit — the terminal 
 front-ends over what is here, so they cannot drift from each other.
 
 The shape of a generated brew is fixed: a bloom at its own temperature plus 2-5 main
-pours, the water stepping down 1 C per pour and 2 C on the last, equal main-pour volumes,
-no vibration on any pour.
+pours, the water stepping down 1 C per pour and 2 C on the last, the wait after each main
+pour 4 s longer than the one before, equal main-pour volumes, no vibration on any pour.
 
 Safety (see CLAUDE.md's invariant): :func:`brew_argv` builds a **load-only** command
 unless ``start=True`` is passed explicitly, and :func:`run_brew` refuses a remote start
@@ -39,6 +39,10 @@ BLOOM_MULT_HI, DOSE_HI = 2.0, 15.0
 # The largest single pour the phone app ever sends. The protocol layer can split a
 # bigger one, but that frame shape has never been seen on hardware.
 APP_MAX_POUR_ML = 127
+
+# How much longer each main pour waits than the one before it. The bed gets deeper and
+# slower to drain with every pour, so a fixed pause would cut each drawdown shorter.
+PAUSE_STEP_S = 4
 
 
 class ParamError(ValueError):
@@ -117,7 +121,8 @@ PARAMS: tuple[Param, ...] = (
           "dominant: bloom + all main pours but the first", choices=("spiral", "center")),
     Param("pours", "--pours", "main pours", int, 3, "2-5 (plus the bloom)",
           choices=(2, 3, 4, 5)),
-    Param("pause", "--pause", "pause", int, 20, "between main pours", " s",
+    Param("pause", "--pause", "pause", int, 15, "after the first main pour; +4 s each after",
+          " s",
           lo=0, hi=120, step=5),
     Param("rpm", "--rpm", "pour rpm", int, 60, "pour head rotation on spiral pours; center uses 0",
           lo=0, hi=120, step=5),
@@ -144,7 +149,7 @@ class BrewParams:
     bloom_temp: int = 80
     pattern: str = "spiral"
     pours: int = 3
-    pause: int = 20
+    pause: int = 15
     rpm: int = 60
     flow: float = 3.5
     grind: int = 0
@@ -217,6 +222,13 @@ def pour_temps(p: BrewParams) -> list[int]:
     return [int(p.bloom_temp), *mains]
 
 
+def pour_pauses(p: BrewParams) -> list[int]:
+    """Wait after each pour: the bloom for ``bloom_time``, then the main pours from
+    ``pause`` growing by :data:`PAUSE_STEP_S` each — 15, 19, 23 s at the defaults.
+    """
+    return [int(p.bloom_time), *(int(p.pause) + PAUSE_STEP_S * j for j in range(int(p.pours)))]
+
+
 def build_pours(p: BrewParams) -> list[dict[str, Any]]:
     """Bloom + main pours. The 'dominant' pattern covers the bloom and every main pour
     except the FIRST one, which gets the other pattern."""
@@ -228,7 +240,7 @@ def build_pours(p: BrewParams) -> list[dict[str, Any]]:
         "ml": bloom_ml if i == 0 else main_ml,
         "temp_c": pour_temps(p)[i],
         "pattern": pattern,
-        "pause_s": int(p.bloom_time) if i == 0 else int(p.pause),
+        "pause_s": pour_pauses(p)[i],
         # rpm is the holder's rotation speed, meaningful only for a pattern that
         # traces a circle; a center pour must send 0.
         "rpm": 0 if pattern == "center" else int(p.rpm),
@@ -258,6 +270,8 @@ def to_yaml(p: BrewParams) -> str:
         f"= dose x ratio).",
         f"# Bloom at {int(p.bloom_temp)} C; main pours from {int(p.temp)} C, 1 C cooler each "
         "pour and 2 C on the last. No vibration on any pour.",
+        f"# Main pours wait {int(p.pause)} s after the first, then {PAUSE_STEP_S} s longer "
+        "after each one.",
         # The parameters, verbatim, so the file can be read back into the generator.
         # A comment, so it is not part of the recipe the machine sees and not part of
         # fingerprint(): two files that brew the same thing still match.
@@ -328,13 +342,15 @@ def legacy_params(text: str) -> BrewParams | None:
     """Parameters for a generator-made recipe saved under *older rules*, best effort.
 
     Such a file carries its ``# params:`` line but its pours no longer re-render from it
-    (the temperature rule has changed since: the bloom used to share ``temp`` and every
-    pour stepped down 1 C). Rather than strand those recipes read-only, they are carried
-    forward: everything the line says is kept, and the two temperatures the new model
-    separates are taken from the file's own pours — the bloom's, and the first main
-    pour's. What does not carry over (the old last-pour step, say) is simply regenerated
-    under the current rules. Only files that have the line are eligible; a recipe the
-    generator never wrote is not reshaped into one.
+    (the rules have changed since: the bloom used to share ``temp`` and every pour
+    stepped down 1 C; every main pour used to wait the same ``pause``, which is now the
+    first of a growing series of waits). Rather than strand those recipes read-only, they
+    are carried forward: everything the line says is kept, and the two temperatures the
+    new model separates are taken from the file's own pours — the bloom's, and the first
+    main pour's. What does not carry over (the old last-pour step, or the old flat
+    pause, which becomes the first wait) is simply regenerated under the current rules.
+    Only files that have the line are eligible; a recipe the generator never wrote is not
+    reshaped into one.
     """
     line = next((ln for ln in text.splitlines() if ln.startswith(PARAMS_MARK)), None)
     body = _pours_block(text)
