@@ -7,8 +7,9 @@ It never prints, never prompts, and never imports a UI toolkit — the terminal 
 (``scripts/gen-brew.py``) and the local web UI (:mod:`xbloom_ble.webui`) are both thin
 front-ends over what is here, so they cannot drift from each other.
 
-The shape of a generated brew is fixed: a bloom plus 2-3 main pours, temperature
-stepping down 1 C per pour, equal main-pour volumes, no vibration on any pour.
+The shape of a generated brew is fixed: a bloom at its own temperature plus 2-5 main
+pours, the water stepping down 1 C per pour and 2 C on the last, equal main-pour volumes,
+no vibration on any pour.
 
 Safety (see CLAUDE.md's invariant): :func:`brew_argv` builds a **load-only** command
 unless ``start=True`` is passed explicitly, and :func:`run_brew` refuses a remote start
@@ -106,14 +107,16 @@ class Param:
 PARAMS: tuple[Param, ...] = (
     Param("dose", "--dose", "dose", float, 10.0, "1-18 g", " g", lo=1, hi=18, step=0.5),
     Param("ratio", "--ratio", "ratio", float, 17.0, "water:coffee", lo=10, hi=22, step=0.5),
-    Param("temp", "--temp", "temp", int, 91, "first pour; -1 C each pour after", " C",
-          lo=60, hi=99, step=1),
+    Param("temp", "--temp", "temp", int, 91, "first main pour; -1 C each after, -2 on the last",
+          " C", lo=60, hi=99, step=1),
     Param("bloom_time", "--bloom-time", "bloom time", int, 50, "pause after the bloom", " s",
           lo=0, hi=180, step=5),
+    Param("bloom_temp", "--bloom-temp", "bloom temp", int, 80, "water for the bloom", " C",
+          lo=40, hi=95, step=1),
     Param("pattern", "--pattern", "pattern", str, "spiral",
           "dominant: bloom + all main pours but the first", choices=("spiral", "center")),
-    Param("pours", "--pours", "main pours", int, 3, "2 or 3 (plus the bloom)",
-          choices=(2, 3)),
+    Param("pours", "--pours", "main pours", int, 3, "2-5 (plus the bloom)",
+          choices=(2, 3, 4, 5)),
     Param("pause", "--pause", "pause", int, 20, "between main pours", " s",
           lo=0, hi=120, step=5),
     Param("rpm", "--rpm", "pour rpm", int, 60, "pour head rotation on spiral pours; center uses 0",
@@ -138,6 +141,7 @@ class BrewParams:
     ratio: float = 17.0
     temp: int = 91
     bloom_time: int = 50
+    bloom_temp: int = 80
     pattern: str = "spiral"
     pours: int = 3
     pause: int = 20
@@ -200,6 +204,19 @@ def derived_name(p: BrewParams) -> str:
     return p.name or f"Gen {p.dose:g}g 1:{p.ratio:g} {p.pattern} {p.pours}p"
 
 
+def pour_temps(p: BrewParams) -> list[int]:
+    """Water temperature per pour: the bloom at its own temperature, then the main pours
+    from ``temp`` stepping down 1 C each, with the last one 2 C below the one before it.
+
+    The last pour is the one that sits longest in a cooling bed, so it drops further;
+    with two main pours that is simply ``temp``, then ``temp - 2``.
+    """
+    n = int(p.pours)
+    mains = [int(p.temp) - j for j in range(n - 1)]
+    mains.append(mains[-1] - 2)
+    return [int(p.bloom_temp), *mains]
+
+
 def build_pours(p: BrewParams) -> list[dict[str, Any]]:
     """Bloom + main pours. The 'dominant' pattern covers the bloom and every main pour
     except the FIRST one, which gets the other pattern."""
@@ -209,7 +226,7 @@ def build_pours(p: BrewParams) -> list[dict[str, Any]]:
     return [{
         "label": "Bloom" if i == 0 else f"Pour {i}",
         "ml": bloom_ml if i == 0 else main_ml,
-        "temp_c": int(p.temp) - i,                      # one degree cooler each pour
+        "temp_c": pour_temps(p)[i],
         "pattern": pattern,
         "pause_s": int(p.bloom_time) if i == 0 else int(p.pause),
         # rpm is the holder's rotation speed, meaningful only for a pattern that
@@ -239,7 +256,8 @@ def to_yaml(p: BrewParams) -> str:
         f"{mult:.2f}x = {round(p.dose * mult)} ml; the bloom carries the rounding so the",
         f"# {p.pours} main pours come out exactly equal at {main_ml} ml and Σ = {total} ml "
         f"= dose x ratio).",
-        f"# Temps step down 1 C per pour from {int(p.temp)} C. No vibration on any pour.",
+        f"# Bloom at {int(p.bloom_temp)} C; main pours from {int(p.temp)} C, 1 C cooler each "
+        "pour and 2 C on the last. No vibration on any pour.",
         # The parameters, verbatim, so the file can be read back into the generator.
         # A comment, so it is not part of the recipe the machine sees and not part of
         # fingerprint(): two files that brew the same thing still match.
@@ -296,8 +314,61 @@ def params_from_yaml(text: str) -> BrewParams | None:
                 out = BrewParams.from_mapping(data)
             except ParamError:
                 return None
+            # The line is a claim about what the pours are. Trust it only when
+            # re-rendering it reproduces them: a recipe saved before the generator's
+            # rules changed (say, how temperatures step) would otherwise be shown with
+            # parameters that no longer describe it, and editing would rewrite its brew.
+            if _pours_block(to_yaml(out)) != _pours_block(text):
+                return None
             return _with_name(out, text)
     return _recovered(text)
+
+
+def legacy_params(text: str) -> BrewParams | None:
+    """Parameters for a generator-made recipe saved under *older rules*, best effort.
+
+    Such a file carries its ``# params:`` line but its pours no longer re-render from it
+    (the temperature rule has changed since: the bloom used to share ``temp`` and every
+    pour stepped down 1 C). Rather than strand those recipes read-only, they are carried
+    forward: everything the line says is kept, and the two temperatures the new model
+    separates are taken from the file's own pours — the bloom's, and the first main
+    pour's. What does not carry over (the old last-pour step, say) is simply regenerated
+    under the current rules. Only files that have the line are eligible; a recipe the
+    generator never wrote is not reshaped into one.
+    """
+    line = next((ln for ln in text.splitlines() if ln.startswith(PARAMS_MARK)), None)
+    body = _pours_block(text)
+    if line is None or len(body) < 2:
+        return None
+    data: dict[str, Any] = {}
+    for pair in line[len(PARAMS_MARK):].split():
+        key, _, val = pair.partition("=")
+        if key in PARAMS_BY_KEY and key not in ("temp", "bloom_temp"):
+            data[key] = val
+    try:
+        out = BrewParams.from_mapping(data)
+        out.bloom_temp = min(95, max(40, int(body[0]["temp_c"])))
+        out.temp = min(95, max(60, int(body[1]["temp_c"])))
+    except (ParamError, KeyError, ValueError):
+        return None
+    return _with_name(out, text)
+
+
+def migrate_cached(path: Path) -> bool:
+    """Bring an older generator-made recipe up to the current rules, in place. → whether
+    it was changed. Its name is kept; its pours are regenerated.
+
+    Called when a recipe is opened for editing, so that what the page shows as its
+    parameters and what the file brews are the same thing from then on.
+    """
+    text = path.read_text(encoding="utf-8")
+    if params_from_yaml(text) is not None:
+        return False
+    legacy = legacy_params(text)
+    if legacy is None:
+        return False
+    path.write_text(to_yaml(legacy), encoding="utf-8")
+    return True
 
 
 def _recovered(text: str) -> BrewParams | None:
@@ -311,7 +382,8 @@ def _recovered(text: str) -> BrewParams | None:
         bloom, first, last = body[0], body[1], body[-1]
         out = BrewParams(
             dose=float(head["dose_g"]), ratio=float(head["ratio"]),
-            grind=int(head["grind"]), temp=int(bloom["temp_c"]),
+            grind=int(head["grind"]), temp=int(first["temp_c"]),
+            bloom_temp=int(bloom["temp_c"]),
             bloom_time=int(bloom["pause_s"]), pattern=bloom["pattern"],
             pours=len(body) - 1, pause=int(first["pause_s"]),
             rpm=int(last["rpm"]) or int(first["rpm"]), flow=float(first["flow_ml_s"]),
