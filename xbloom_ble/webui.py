@@ -16,10 +16,11 @@ Safety, mirroring CLAUDE.md's invariant:
 * ``POST /api/start`` is the only route that starts one. It requires an explicit
   ``acknowledge: true`` plus a name for the brew — the browser sends those only from the
   confirmation dialog, which is the web equivalent of the terminal guide's TTY gate.
-* ``POST /api/rename``, ``/api/save``, ``/api/fork`` and ``/api/delete`` only touch
+* ``POST /api/rename``, ``/api/save``, ``/api/fork``, ``/api/create``, ``/api/color`` and
+  ``/api/delete`` only touch
   files in the recipe cache. None of them spawns anything, and none can reach the
-  machine. The page autosaves through ``/api/save`` on every parameter edit, which is
-  why it has to stay that way.
+  machine. The page saves a staged recipe through ``/api/save`` when you press Save,
+  and these routes are what make that safe to do at any time.
 * ``POST /api/load`` has **no button on the page** any more — the UI offers staging (a
   page-level idea: which recipe you are editing) and starting, and nothing in between.
   The route stays because loading-without-starting is the safer half of the protocol
@@ -61,6 +62,10 @@ class Run:
     file: str                   # the cache filename it was loaded from
     started_brew: bool          # True when this run also sent commit+start (0x42/0x46)
     started_at: float
+    # The recipe as it was handed to the machine (brewgen.brew_details), for the page's
+    # "what is brewing" card. Read once at launch, so later edits to the file — or the
+    # page staging something else — cannot change what the card says ran.
+    details: dict[str, Any] = field(default_factory=dict)
     lines: list[str] = field(default_factory=list)
     returncode: int | None = None
     proc: subprocess.Popen | None = None
@@ -80,6 +85,7 @@ class Run:
             "done": self.done,
             "returncode": self.returncode,
             "argv": self.argv,
+            "details": self.details,
             "lines": self.lines[since:],
             "next": len(self.lines),
         }
@@ -104,7 +110,8 @@ class Runner:
         return run is not None and not run.done
 
     def launch(self, path: Path, *, start: bool, name: str, cwd: Path,
-               address: str | None, timeout: float, debug: bool) -> Run:
+               address: str | None, timeout: float, debug: bool,
+               details: dict[str, Any] | None = None) -> Run:
         """Start the subprocess. → the :class:`Run`, or raise if one is already live."""
         with self._lock:
             if self._run is not None and not self._run.done:
@@ -117,7 +124,7 @@ class Runner:
                 timeout=timeout, dry_run=True,      # dry_run: we spawn it ourselves below
             )
             run = Run(id=self._next_id, argv=argv, recipe=name, file=path.name,
-                      started_brew=start, started_at=time.time())
+                      started_brew=start, started_at=time.time(), details=details or {})
             self._next_id += 1
             proc = subprocess.Popen(
                 argv, cwd=str(cwd), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -255,6 +262,10 @@ class _Handler(BaseHTTPRequestHandler):
                 self._do_fork(body)
             elif route.path == "/api/delete":
                 self._do_delete(body)
+            elif route.path == "/api/color":
+                self._do_color(body)
+            elif route.path == "/api/create":
+                self._do_create(body)
             elif route.path == "/api/run/stop":
                 stopped = self.server.runner.stop()             # type: ignore[attr-defined]
                 self._json({"stopped": stopped})
@@ -287,6 +298,8 @@ class _Handler(BaseHTTPRequestHandler):
         """
         srv = self.server                                      # type: ignore[assignment]
         path = brewgen.resolve_cached(filename, srv.root)
+        brewgen.migrate_cached(path)       # an older generator recipe is carried forward
+        brewgen.ensure_color(path)
         text = path.read_text(encoding="utf-8")
         params = brewgen.params_from_yaml(text)
         summary, ok = brewgen.describe(path)
@@ -295,14 +308,16 @@ class _Handler(BaseHTTPRequestHandler):
                 "params": params.as_dict() if params else None,
                 "editable": params is not None and ok,
                 "readable": ok, "summary": summary,
-                "fingerprint": brewgen.fingerprint(text)}
+                "fingerprint": brewgen.fingerprint(text),
+                "color": brewgen.cached_color(text)}
 
     def _staged_json(self, path: Path) -> dict[str, Any]:
         return {"file": path.name, "stem": path.stem,
-                "name": brewgen.cached_name(path) or path.stem}
+                "name": brewgen.cached_name(path) or path.stem,
+                "color": brewgen.ensure_color(path)}
 
     def _do_save(self, body: dict[str, Any]) -> None:
-        """Autosave the staged recipe. Rewrites one cached file; spawns nothing."""
+        """Save the staged recipe's edits. Rewrites one cached file; spawns nothing."""
         srv = self.server                                      # type: ignore[assignment]
         path = brewgen.resolve_cached(str(body.get("file") or ""), srv.root)
         params = BrewParams.from_mapping(body.get("params") or {})
@@ -318,8 +333,30 @@ class _Handler(BaseHTTPRequestHandler):
         srv = self.server                                      # type: ignore[assignment]
         params = BrewParams.from_mapping(body.get("params") or {})
         name = str(body.get("name") or "").strip() or None
-        out = brewgen.fork_cached(params, srv.root, name)
+        color = str(body.get("color") or "") or None
+        out = brewgen.fork_cached(params, srv.root, name, color)
         self._json(self._staged_json(out))
+
+    def _do_create(self, body: dict[str, Any]) -> None:
+        """Save the custom recipe's parameters as a new, named cached recipe."""
+        srv = self.server                                      # type: ignore[assignment]
+        params = BrewParams.from_mapping(body.get("params") or {})
+        p = brewgen.plan(params)
+        if not p.valid:
+            self._error(f"not saved — {p.error}")
+            return
+        path = brewgen.create_cached(params, str(body.get("name") or ""), srv.root)
+        self._json(self._staged_json(path))
+
+    def _do_color(self, body: dict[str, Any]) -> None:
+        """Set a cached recipe's label colour. There is no way to clear one."""
+        srv = self.server                                      # type: ignore[assignment]
+        path = brewgen.resolve_cached(str(body.get("file") or ""), srv.root)
+        color = str(body.get("color") or "")
+        if not color:
+            raise ParamError("a brew always has a colour — pick one")
+        brewgen.set_color(path, color)
+        self._json(self._staged_json(path))
 
     def _do_delete(self, body: dict[str, Any]) -> None:
         """Delete one cached recipe."""
@@ -344,6 +381,7 @@ class _Handler(BaseHTTPRequestHandler):
         """
         srv = self.server                                      # type: ignore[assignment]
         name: str | None = None
+        saved = True            # is `path` a recipe in the saved list (vs. a custom one-off)?
         if start:
             # The gate. The page sends these two together from the confirmation dialog
             # and from nowhere else; without them nothing is spawned.
@@ -378,12 +416,16 @@ class _Handler(BaseHTTPRequestHandler):
             if not p.valid:
                 self._error(f"cannot brew an invalid recipe: {p.error}")
                 return
-            path, _ = brewgen.write_cached(params, srv.root)
+            # A brew of the custom recipe is not a saved recipe: it goes to the scratch
+            # file, not into the list. Saving is its own step ("Save New Recipe").
+            path = brewgen.write_scratch(params, srv.root)
             recipe_name = p.name
+            saved = False
 
         run = srv.runner.launch(path, start=start, name=recipe_name, cwd=srv.cwd,
-                                address=srv.address, timeout=srv.timeout, debug=srv.debug)
-        if start:
+                                address=srv.address, timeout=srv.timeout, debug=srv.debug,
+                                details=brewgen.brew_details(path))
+        if start and saved:
             brewgen.mark_brewed(path, srv.root)      # launch() raised if it did not go
         self._json({"run": run.to_json()})
 

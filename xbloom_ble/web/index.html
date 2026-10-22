@@ -33,12 +33,42 @@
       --bloom: #67e8f9; --bloom-soft: #0d3b45;
     }
   }
+  /* A recipe with a colour paints its list card and the brew panel with it. Whether the
+     text on it is light or dark follows from the colour, and every token is redefined for
+     that tone so the hues, tints and buttons stay legible on whatever it is. */
+  .tone-dark, .tone-light { color: var(--ink); }
+  .tone-dark {
+    --ink: #f7f6f4; --dim: rgba(255,255,255,.7); --sunk: rgba(0,0,0,.2);
+    --wash: rgba(255,255,255,.14); --stripe: rgba(0,0,0,.14);
+    --dose: #fbbf24; --dose-soft: rgba(251,191,36,.22);
+    --ratio: #c4b5fd; --ratio-soft: rgba(196,181,253,.22);
+    --temp: #fda4af; --temp-soft: rgba(253,164,175,.22);
+    --bloom: #67e8f9; --bloom-soft: rgba(103,232,249,.2);
+    --accent: #fbbf24; --accent-soft: rgba(251,191,36,.2);
+    --danger: #fecaca; --danger-soft: rgba(0,0,0,.3);
+    --ok: #86efac; --ok-soft: rgba(134,239,172,.2);
+  }
+  /* A primary button is the text colour as a fill; its label must be the opposite tone,
+     which on a coloured surface is not the page background. */
+  .tone-dark button.primary { color: #0a0807; }
+  .tone-light button.primary { color: #f7f6f4; }
+  .tone-light {
+    --ink: #0a0807; --dim: rgba(0,0,0,.8); --sunk: rgba(0,0,0,.07);
+    --wash: rgba(0,0,0,.09); --stripe: rgba(0,0,0,.04);
+    --dose: #6b2d0b; --dose-soft: rgba(180,83,9,.2);
+    --ratio: #3b1580; --ratio-soft: rgba(109,40,217,.16);
+    --temp: #7a0f2e; --temp-soft: rgba(190,18,60,.16);
+    --bloom: #0b5568; --bloom-soft: rgba(14,116,144,.18);
+    --accent: #6b2d0b; --accent-soft: rgba(180,83,9,.16);
+    --danger: #7f1515; --danger-soft: rgba(185,28,28,.16);
+    --ok: #0f4a26; --ok-soft: rgba(21,128,61,.17);
+  }
   * { box-sizing: border-box; }
   body {
     margin: 0; background: var(--bg); color: var(--ink);
     font: 15px/1.5 var(--sans); -webkit-font-smoothing: antialiased;
   }
-  .wrap { max-width: 1240px; margin: 0 auto; padding: 22px 16px 64px; }
+  .wrap { max-width: 1680px; margin: 0 auto; padding: 22px 16px 64px; }
   h1 { font-size: 17px; margin: 0 0 16px; letter-spacing: -0.01em; }
   .muted { color: var(--dim); }
   .eyebrow {
@@ -46,91 +76,152 @@
     font-weight: 600; margin-bottom: 10px;
   }
 
-  /* Two columns: the brew on the left, what you have saved on the right. Surfaces are
-     told apart by background alone — no outlines — and nothing is rounded but the controls. */
-  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: 16px;
-            align-items: start; }
-  @media (max-width: 940px) { .layout { grid-template-columns: 1fr; } }
-  .stack { display: grid; gap: 16px; }
+  /* Three columns: what you have saved on the left, the brew you are setting up in the
+     middle, and what the machine is doing on the right. Surfaces are told apart by
+     background alone — no outlines — and nothing is rounded but the controls. Narrower,
+     the machine column drops under the brew; narrower still, everything stacks with the
+     brew first and the saved list last. */
+  .layout { display: grid; gap: 16px; align-items: start;
+            grid-template-columns: 360px minmax(0, 1fr) 380px;
+            grid-template-areas: "list brew run"; }
+  @media (max-width: 1360px) {
+    .layout { grid-template-columns: 360px minmax(0, 1fr);
+              grid-template-areas: "list brew" "list run"; }
+  }
+  @media (max-width: 940px) {
+    .layout { grid-template-columns: 1fr; grid-template-areas: "brew" "run" "list"; }
+  }
+  aside { grid-area: list; padding: 8px 12px 8px 12px; }
+  #brewpane { grid-area: brew; }
+  #run-panel { grid-area: run; }
   .panel { background: var(--panel); padding: 18px; border-radius: var(--r); }
   /* "Pass through": surfaces that hold text or input carry no fill of their own, so the
      panel's colour shows straight through and contrast stays at its highest. Hover and
      focus are a translucent wash over whatever is behind, never a different shade. */
-  :root { --wash: rgba(127, 127, 127, 0.14); }
+  :root { --mark: #1c1917; --wash: rgba(127, 127, 127, 0.14); --stripe: rgba(0, 0, 0, 0.025); }
+  @media (prefers-color-scheme: dark) { :root { --stripe: rgba(0, 0, 0, 0.1); --mark: #f4f3f1; } }
 
   /* --- the staged brew ------------------------------------------------------
      Exactly one brew is staged: a saved file, which every edit writes back to, or
      "new", which is saved nowhere. This bar says which. */
-  #staged {
-    display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 14px;
-    border-radius: var(--r); font-size: 14px; background: var(--sunk);
-  }
-  #staged .what { font-weight: 650; }
-  #staged .note { color: var(--dim); font-size: 12.5px; }
-  #staged .btns { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+  /* A fixed-height block — a two-line title and a status row — whichever recipe is
+     staged, so everything under it (the summary, the actions, BREW) is in the same place
+     whether it is the custom recipe, which fills only the title, or a saved one. */
+  #staged { display: flex; align-items: center; align-content: flex-start; flex-wrap: wrap;
+            gap: 8px 12px; height: 112px; margin-bottom: 14px; font-size: 14px; }
+  #staged-title[hidden], #staged-name[hidden] { display: none; }
+  #staged-title { text-align: center; }  /* the custom brew's fixed title is centred */
+  #staged-title, #staged-name { flex: 0 0 100%; height: 60px; font: 700 24px/30px var(--sans);
+                                letter-spacing: -0.01em; }
+  /* The status takes what room the buttons leave and is cut off rather than wrapped, so
+     status and buttons always share one line. */
+  #staged .note { color: var(--dim); font-size: 13px; flex: 1 1 0; min-width: 7ch;
+                  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #staged .btns { display: flex; gap: 6px; align-items: center; flex: none; }
   #staged-name {
-    font: 650 15px/1.2 var(--sans); color: inherit; background: transparent; min-width: 12ch;
-    border: 0; border-radius: var(--r); padding: 4px 7px; margin: -4px 0;
-    field-sizing: content; width: 26ch; max-width: 34ch;
+    color: inherit; background: transparent; min-width: 0; width: 100%;
+    resize: none; overflow: hidden; display: block;
+    border: 0; border-radius: var(--r); padding: 2px 7px; margin: 0 0 0 -7px;
   }
   #staged-name:hover, #staged-name:focus { outline: none; background: var(--wash); }
-  #staged.saved { background: var(--ok-soft); color: var(--ok); }
+  #staged button { background: var(--wash); }
+  #staged button.primary { background: var(--ink); color: var(--bg); }
+  #staged button.danger { color: var(--danger); }
 
   /* --- parameters: the main event ------------------------------------------ */
-  .heroes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
-  .others { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-top: 10px; }
-  @media (max-width: 1100px) { .heroes { grid-template-columns: repeat(2, 1fr); }
-                               .others { grid-template-columns: repeat(3, 1fr); } }
-  @media (max-width: 500px) { .others { grid-template-columns: repeat(2, 1fr); } }
+  /* The panel is two panes: the fields as a label | value table, and what they add up to
+     (the summary and the Brew button) beside it. */
+  /* Only the right half takes the recipe's colour, and it runs to the card's edges. */
+  .brewpane { display: grid; grid-template-columns: 330px minmax(0, 1fr);
+              padding: 0; overflow: hidden; }
+  .fields { padding: 18px; }
+  /* a read-only recipe: its fields are shown for orientation but cannot be edited */
+  .fields.locked { opacity: 0.3; pointer-events: none; }
+  .side { padding: 18px 20px; }
+  @media (max-width: 760px) { .brewpane { grid-template-columns: 1fr; } }
+  .others { margin-top: 14px; }
 
-  /* A default card is quiet: no fill, dim value. A changed card is loud: its parameter's
-     tint, its colour, and a heavy bottom edge. The edge is reserved on every card (clear
-     when unchanged) so nothing shifts when a value changes, and it means "changed" only —
-     focus gets the wash, not the edge. */
-  .p { position: relative; padding: 11px 12px 8px; border-radius: var(--r);
-       border-bottom: 3px solid transparent; transition: background .12s; }
-  .p:hover, .p:focus-within { background: var(--wash); }
+  /* No padding on the row itself: the label and the input carry it instead, so between
+     them they cover every pixel of the stripe. There is no dead space to miss. */
+  .p { position: relative; display: grid; grid-template-columns: 8.5em minmax(0, 1fr);
+       align-items: stretch; padding: 0; border-radius: var(--r); transition: background .12s; }
+  /* Alternate rows are slightly darker, edge to edge, so the eye can follow a row from
+     its label across to its value. */
+  .fields .p:nth-child(odd) { background: var(--stripe); }
+  .fields .p:hover, .fields .p:focus-within { background: var(--wash); }
   .p .label {
-    display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
-    font-weight: 650; color: var(--dim); margin-bottom: 6px;
+    font-size: 15px; font-weight: 600; color: var(--dim); cursor: pointer;
+    display: flex; align-items: center; padding: 11px 10px 12px 12px;
   }
+  /* The input fills the whole value cell, edge to edge and top to bottom, and the label is
+     a real <label> for it, so a click anywhere on the row lands in the input. The unit is drawn over the input, at the end of what it holds, and lets
+     every click fall through to the input underneath. */
+  .p .val { position: relative; min-width: 0; display: flex; font: 700 20px/1.2 var(--mono);
+            font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+  .hero .val { font-size: 30px; }
+  .p .unit-at { position: absolute; top: 11px; pointer-events: none; white-space: nowrap;
+                color: transparent; }          /* a strut at the input's font, for the baseline */
+  .p .unit { font: 600 14px var(--sans); letter-spacing: 0; margin-left: 7px;
+             color: var(--dim); opacity: 0.85; }
+  .hero .unit { color: var(--hue); }
   .p input, .p select {
-    width: 100%; border: 0; background: transparent; color: var(--dim); padding: 0;
-    font: 700 30px/1.05 var(--mono); font-variant-numeric: tabular-nums;
-    letter-spacing: -0.02em; -moz-appearance: textfield;
+    flex: 1; min-width: 0; border: 0; background: transparent; color: var(--ink);
+    padding: 11px 38px 12px 0; font: inherit; letter-spacing: inherit; -moz-appearance: textfield;
   }
   .p input::-webkit-outer-spin-button, .p input::-webkit-inner-spin-button {
     -webkit-appearance: none; margin: 0;
   }
   .p input:focus, .p select:focus { outline: none; }
+  .p select { margin-left: -4px; padding-left: 0; }
   /* A changed card grows only a way back. Whether a parameter is on its default is
      said by colour alone. */
   .p .revert {
-    position: absolute; top: 6px; right: 6px; border: 0; background: none;
+    position: absolute; top: 50%; right: 6px; transform: translateY(-50%); border: 0;
+    background: none;
     color: var(--hue); cursor: pointer; font: 600 13px/1 var(--sans);
     padding: 3px 5px; border-radius: var(--r);
   }
   .p .revert:hover { background: var(--wash); }
 
   /* changed: the card takes the parameter's own colour */
-  .p.on { background: var(--tint); color: var(--hue); border-bottom-color: var(--hue); }
-  .p.on:hover, .p.on:focus-within { background: var(--tint); }
+  .fields .p.on, .fields .p.on:hover, .fields .p.on:focus-within {
+    background: var(--tint); color: var(--hue); }
   .p.on .label, .p.on input, .p.on select { color: var(--hue); }
 
   /* the four headline cards are bigger and always wear their hue */
-  .hero .label { color: var(--hue); }
-  .hero input, .hero select { font-size: 38px; }
-  .others .p input, .others .p select { font-size: 21px; }
+  .hero .label, .hero input, .hero select { color: var(--hue); }
 
   /* --- the summary: what the parameters add up to, and the pours they make ---- */
-  .summary { margin-top: 16px; font-size: 12.5px; color: var(--dim); line-height: 1.6; }
-  .summary b { font-weight: 650; color: var(--ink); }
-  .summary .chg, .summary .pours { font-family: var(--mono); font-size: 12px; }
-  .summary .pours { display: block; }
-  .summary .pours em { font-style: normal; color: var(--bloom); }
-
-  .actions { display: flex; gap: 10px; margin-top: 14px; align-items: center; flex-wrap: wrap; }
-  .banner { margin-top: 12px; padding: 9px 12px; border-radius: var(--r); font-size: 13px; }
+  .side { display: flex; flex-direction: column; min-height: 100%; }
+  .summary { display: grid; grid-template-columns: 5.5em minmax(0, 1fr); gap: 7px 12px;
+             font-size: 13.5px; line-height: 1.45; align-content: start; }
+  .summary dt { color: var(--dim); }
+  .summary dd { margin: 0; font-family: var(--mono); font-size: 13px; }
+  .summary dd.name { font: 650 14px/1.4 var(--sans); }
+  .summary dd em { font-style: normal; color: var(--bloom); }
+  .summary dd.none { color: var(--dim); }
+  /* Always the bottom-right corner of the panel, so it never moves. */
+  /* Reset and Save New Recipe sit just above BREW, in the same voice at a smaller size, and
+     the pair is pinned to the bottom of the panel together. */
+  .bottom { margin-top: auto; display: flex; flex-direction: column; gap: 10px; }
+  .custom-actions { display: flex; flex-direction: column; gap: 10px; }
+  .custom-actions[hidden] { display: none; }
+  #custom-match[hidden] { display: none; }
+  /* Shown when the custom brew's parameters are exactly those of a saved recipe. It holds
+     a recipe's own name, so it keeps that name's capitalisation. */
+  .custom-actions #custom-match { overflow: hidden; text-overflow: ellipsis;
+      white-space: nowrap; text-transform: none; letter-spacing: 0; font-weight: 700;
+      color: var(--ok); }
+  .custom-actions button, .edit-actions button {
+      width: 100%; padding: 15px 12px; font-size: 14px; font-weight: 800;
+      letter-spacing: 0.1em; text-transform: uppercase; }
+  /* A saved recipe with edits that are not on disk yet: the way back, and the way to keep
+     them, side by side just above BREW. */
+  .edit-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .edit-actions[hidden] { display: none; }
+  .brewbtn { align-self: stretch; padding: 22px 28px;
+             font-size: 20px; font-weight: 800; letter-spacing: 0.12em; }
+  .banner { margin-top: 14px; padding: 9px 12px; border-radius: var(--r); font-size: 13px; }
   .banner.bad { background: var(--danger-soft); color: var(--danger); }
   .banner.warn { background: var(--accent-soft); color: var(--accent); }
   .banner b { font-weight: 650; }
@@ -148,39 +239,85 @@
   button.small { padding: 6px 10px; font-size: 12.5px; }
   button.ghost { background: transparent; color: var(--dim); }
   button.ghost:hover:not(:disabled) { background: var(--sunk); color: var(--ink); }
-  #staged button { background: var(--panel); color: var(--ink); }
-  #staged button.primary { background: var(--ink); color: var(--bg); }
-  #staged button.danger { background: var(--panel); color: var(--danger); }
 
   /* --- saved brews (the right-hand column) ---------------------------------- */
-  aside h2 { margin: 2px 0 10px; font-size: 11px; text-transform: uppercase;
-             letter-spacing: 0.09em; color: var(--dim); font-weight: 600; }
-  /* The column itself is bare; each brew is its own card. */
-  .brew-row { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; align-items: center;
-              padding: 12px 14px; border-radius: var(--r); background: var(--panel);
-              box-shadow: inset 3px 0 0 transparent; }
-  .brew-row + .brew-row { margin-top: 8px; }
-  .brew-row.current { background: var(--ok-soft); box-shadow: inset 3px 0 0 var(--ok); }
-  .brew-row.twin { box-shadow: inset 3px 0 0 var(--ok); }
-  .brew-row .name-edit {
-    font: 600 14px/1.2 var(--sans); color: var(--ink); background: transparent;
-    border: 0; border-radius: var(--r); padding: 4px 6px; width: 100%; margin: -4px 0 -4px -6px;
+  /* A collection: the column is bare, each brew is a card, and the whole card is the
+     control — it does one thing, stage that brew. "Custom Brew" is the first item. */
+  .brew-row { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; align-items: baseline;
+              padding: 12px 14px; border-radius: var(--r); background: var(--panel); position: relative;
+              cursor: pointer; user-select: none; }
+  .brew-row + .brew-row { margin-top: 14px; }
+  .brew-row:hover { background: var(--sunk); filter: brightness(1.1); }
+  .brew-row:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
+  /* The staged card is held in one border that stands clear of it. The border is built
+     from two filled shapes behind the card — the mark colour, then the page background
+     cut into it — so the gap is an even 4px on every side and the inner corners are
+     rounded to match (4px card + 4px gap = an 8px inner radius; +3px of border = 11px
+     outside). Only hovering moves a card: it slides 3px to the right, border and all.
+     The mark colour is the page's text colour: never a recipe or a state colour, so it is
+     never lost against any card. An unsaved brew identical to a saved one rings that card
+     with a dashed line instead.
+     The slide uses `left`, not `transform`: a transform (like a filter or an opacity)
+     makes the card its own stacking context, and the two shapes behind it would then paint
+     over the card's own background instead of under it. */
+  .brew-row { left: 0; transition: left .24s cubic-bezier(.2, .8, .2, 1); }
+  .brew-row:hover { left: 3px; }
+  .brew-row::before, .brew-row::after {
+    content: ''; position: absolute; z-index: -1; pointer-events: none; opacity: 0;
+    transition: opacity .2s, inset .24s cubic-bezier(.2, .8, .2, 1);
   }
-  .brew-row .name-edit:hover, .brew-row .name-edit:focus { outline: none; background: var(--wash); }
-  .brew-row .sum { color: var(--dim); font-family: var(--mono); font-size: 11.5px; }
+  .brew-row::before { inset: -2px; background: var(--mark); border-radius: 11px; }
+  .brew-row::after { inset: -2px; background: var(--bg); border-radius: 8px; }
+  .brew-row.current:hover { filter: none; }
+  .brew-row.current::before { inset: -7px; opacity: 1; }
+  .brew-row.current::after { inset: -4px; opacity: 1; }
+  @media (prefers-reduced-motion: reduce) {
+    .brew-row, .brew-row::before, .brew-row::after { transition: none; }
+  }
+  .brew-row.off { opacity: 0.5; cursor: not-allowed; }
+  .brew-row .nm { font: 600 14px/1.3 var(--sans); overflow: hidden; text-overflow: ellipsis;
+                  white-space: nowrap; }
+  .brew-row .sum { color: var(--dim); font-family: var(--mono); font-size: 11.5px;
+                   grid-column: 1 / -1; }
   .brew-row .age { color: var(--dim); font-size: 11.5px; white-space: nowrap; }
-  .brew-row .btns { display: flex; gap: 4px; grid-column: 1 / -1; margin-top: 4px; }
-  .brew-row .btns button { background: var(--sunk); }
-  .brew-row .btns button.danger { background: var(--danger-soft); }
-  .brew-row .btns .ghost { background: transparent; margin-left: auto; }
-  .brew-row .btns .ghost:hover:not(:disabled) { background: var(--wash); }
+  .brew-row.current .age, .brew-row.current .sum { color: inherit; opacity: 0.75; }
+  /* The Custom Brew card: just its title, dead centre. The actions that
+     belong to it (Reset, Save New Recipe) are on the brew panel, above BREW. */
+  .brew-row.custom { display: flex; flex-direction: column; align-items: center;
+                     justify-content: center; gap: 10px; min-height: 56px; text-align: center; }
+  .brew-row.custom .nm { font-size: 15px; }
+  dialog input[type=text] { width: 100%; font: 600 15px/1 var(--sans); padding: 11px 12px;
+      border: 0; border-radius: var(--r); background: var(--sunk); color: var(--ink);
+      margin-bottom: 14px; }
+  dialog input[type=text]:focus { outline: 2px solid var(--ink); outline-offset: -2px; }
 
-  /* --- logs ------------------------------------------------------------------ */
+  /* --- the run column: what is brewing, then its log ------------------------- */
+  #run-panel { padding: 0; overflow: hidden; }
+  /* The recipe the machine was handed, painted in its own colour like its card. */
+  .run-card { padding: 18px; }
+  .run-card .run-name { font: 700 20px/1.25 var(--sans); letter-spacing: -0.01em;
+                        margin: 2px 0 6px; overflow-wrap: anywhere; }
+  .run-card .run-state { font-size: 13px; font-weight: 650; }
+  .run-card .run-state.live { color: var(--accent); }
+  .run-card .run-state.ok { color: var(--ok); }
+  .run-card .run-state.bad { color: var(--danger); }
+  .run-card .run-sum { font: 12.5px var(--mono); color: var(--dim); margin-top: 4px; }
+  .run-card .eyebrow { color: inherit; opacity: 0.7; margin-bottom: 4px; }
+  .run-pours { width: 100%; border-collapse: collapse; margin-top: 12px;
+               font: 12.5px/1.4 var(--mono); font-variant-numeric: tabular-nums; }
+  .run-pours th { text-align: left; font: 600 11px var(--sans); color: var(--dim);
+                  text-transform: uppercase; letter-spacing: 0.06em; padding: 0 6px 4px 0; }
+  .run-pours td { padding: 4px 6px 4px 0; }
+  .run-pours td.n, .run-pours th.n { text-align: right; padding-right: 14px; }
+  .run-pours tbody tr:nth-child(odd) { background: var(--stripe); }
+  .run-empty { color: var(--dim); font-size: 13.5px; }
+  .logbox { padding: 14px 18px 18px; }
   pre.log {
     margin: 0; padding: 0; background: transparent; color: var(--ink);
     font-family: var(--mono); font-size: 12.5px; line-height: 1.55;
-    max-height: 340px; overflow: auto; white-space: pre-wrap; word-break: break-word;
+    max-height: 60vh; overflow: auto; white-space: pre-wrap; word-break: break-word;
   }
+  pre.log:empty::before { content: 'No output yet.'; color: var(--dim); }
 
   dialog { border: 0; border-radius: var(--r); background: var(--panel); color: var(--ink);
            padding: 20px; max-width: 420px; width: calc(100% - 32px); }
@@ -191,6 +328,26 @@
                         background: var(--sunk); border-radius: var(--r); margin-bottom: 12px;
                         font-variant-numeric: tabular-nums; }
   dialog .btns { display: flex; gap: 8px; justify-content: flex-end; }
+  #color-preview { padding: 18px 16px; border-radius: var(--r); margin-bottom: 16px; }
+  #color-preview strong { display: block; font-size: 18px; }
+  #color-preview span { font: 12.5px var(--mono); opacity: .75; }
+  #color-dialog .cap { display: block; font-size: 12px; font-weight: 600; color: var(--dim);
+                       margin: 0 0 5px; }
+  /* A full colour selector: a field of saturation (across) and brightness (up) for the
+     chosen hue, a hue bar, and the hex value. */
+  #sv { position: relative; height: 170px; border-radius: var(--r); margin-bottom: 14px;
+        cursor: crosshair; touch-action: none; user-select: none; }
+  #sv-thumb { position: absolute; width: 16px; height: 16px; margin: -8px 0 0 -8px;
+              border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1.5px #000;
+              pointer-events: none; }
+  #color-hue { -webkit-appearance: none; appearance: none; width: 100%; height: 22px;
+               border-radius: var(--r); margin: 0 0 14px; display: block; cursor: pointer;
+               background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00); }
+  #color-hue::-webkit-slider-thumb { -webkit-appearance: none; width: 8px; height: 30px;
+      background: #fff; border-radius: 2px; box-shadow: 0 0 0 1.5px #000; }
+  #color-hue::-moz-range-thumb { width: 8px; height: 30px; background: #fff; border: 0;
+      border-radius: 2px; box-shadow: 0 0 0 1.5px #000; }
+  #color-dialog input[type=text] { font-family: var(--mono); letter-spacing: 0.04em; }
 </style>
 </head>
 <body>
@@ -198,46 +355,88 @@
   <h1>xBloom brew</h1>
 
   <div class="layout">
-    <div class="stack">
-      <!-- which brew is staged: a saved file, or an unsaved new one ----------- -->
-      <div id="staged">
-        <span class="what" id="staged-what">…</span>
-        <input id="staged-name" spellcheck="false" hidden>
-        <span class="note" id="staged-note"></span>
-        <span class="btns" id="staged-btns"></span>
+    <!-- PARAMETERS: the main event ---------------------------------------- -->
+    <section class="panel brewpane" id="brewpane">
+      <div class="fields" id="fields">
+        <div id="heroes"></div>
+        <div id="others"></div>
       </div>
-
-      <!-- PARAMETERS: the main event ---------------------------------------- -->
-      <section class="panel">
-        <div class="heroes" id="heroes"></div>
-        <div class="others" id="others"></div>
-
-        <div class="summary" id="summary"></div>
-        <div id="banners"></div>
-
-        <div class="actions">
-          <button class="danger" id="start">Brew</button>
+      <div class="side" id="brewside">
+        <!-- the staged brew: its name (editable when it is a saved file) and status -->
+        <div id="staged">
+          <span id="staged-title">Custom Brew</span>
+          <textarea id="staged-name" rows="1" spellcheck="false" hidden></textarea>
+          <span class="note" id="staged-note"></span>
+          <span class="btns" id="staged-btns"></span>
         </div>
-      </section>
+        <dl class="summary" id="summary"></dl>
+        <div id="banners"></div>
+        <div class="bottom">
+          <!-- only while the custom recipe is staged -->
+          <div class="custom-actions" id="custom-actions" hidden>
+            <button id="custom-match" hidden></button>
+            <button id="custom-reset">Reset</button>
+            <button id="custom-save">Save New Recipe</button>
+          </div>
+          <!-- only while a saved recipe has edits that are not on disk yet -->
+          <div class="edit-actions" id="edit-actions" hidden>
+            <button id="edit-discard">Discard changes</button>
+            <button class="primary" id="edit-save">Save</button>
+          </div>
+          <button class="danger brewbtn" id="start">BREW</button>
+        </div>
+      </div>
+    </section>
 
-      <section class="panel" id="run-panel" hidden>
+    <!-- the machine: the recipe being brewed, then the run's log ------------ -->
+    <section class="panel" id="run-panel">
+      <div class="run-card" id="run-card">
+        <div class="eyebrow">Brewing</div>
+        <div class="run-empty">Nothing brewed yet.</div>
+      </div>
+      <div class="logbox">
         <div class="eyebrow">Logs</div>
         <pre class="log" id="run-log"></pre>
-      </section>
-    </div>
+      </div>
+    </section>
 
-    <!-- saved brews: the right-hand column ---------------------------------- -->
+    <!-- saved brews: the left-hand column ------------------------------------ -->
     <aside>
-      <h2>Saved brews</h2>
       <div id="recent"></div>
     </aside>
   </div>
 </div>
 
+<dialog id="save-dialog">
+  <h3>Name this recipe</h3>
+  <input type="text" id="save-name" autocomplete="off" spellcheck="false">
+  <div class="btns">
+    <button id="save-cancel">Cancel</button>
+    <button class="primary" id="save-go">Save</button>
+  </div>
+</dialog>
+
+<dialog id="color-dialog">
+  <h3>Color</h3>
+  <div id="color-preview"><strong id="color-preview-name"></strong>
+    <span id="color-preview-sub"></span></div>
+  <div id="sv" aria-label="Saturation and brightness"><div id="sv-thumb"></div></div>
+  <label class="cap" for="color-hue">Hue</label>
+  <input type="range" id="color-hue" min="0" max="359" step="1">
+  <label class="cap" for="color-hex">Hex</label>
+  <input type="text" id="color-hex" maxlength="7" spellcheck="false" autocomplete="off">
+  <div class="btns">
+    <button id="color-cancel">Cancel</button>
+    <button class="primary" id="color-save">Save</button>
+  </div>
+</dialog>
+
 <dialog id="start-dialog">
   <h3>Brew this remotely?</h3>
   <div class="summary-box"><strong id="start-name"></strong><br>
     <span id="start-summary"></span></div>
+  <p id="start-note" hidden>This brews the unsaved changes on screen. The saved recipe
+    stays as it is.</p>
   <p>The machine will dispense near-boiling water.</p>
   <div class="btns">
     <button id="start-cancel">Cancel</button>
@@ -256,20 +455,19 @@ let params = {};          // current parameter state
 let planData = null;      // last plan from /api/plan
 let config = null;
 let brews = [];           // cached brews, as shown in the saved list
-// The staged brew: {file, name} when a saved recipe is being edited, null for "new".
-// Everything about saving hangs off this one variable — if it is set, every parameter
-// edit is written back to that file; if it is null, nothing is written anywhere.
+// The staged brew: {file, name, color, saved} when a saved recipe is staged, where `saved`
+// is its parameters as they are on disk; null for the custom brew, which is saved nowhere.
+// Editing a saved recipe changes only the page. The file is written when you press Save,
+// and Discard changes puts the page back to `saved`.
 let staged = null;
-let saveTimer = null, saveState = '';
-// Staging loads a file's parameters *into* the page, which looks exactly like an edit.
-// This says "that render came from disk", so it is not written straight back.
-let justStaged = false;
+let saveState = '';       // '' | 'saving' | 'error: …'
 let pending = null;       // {file} when the start dialog was opened from a cached brew
 let pollTimer = null, logSince = 0;
 
 // The four parameters that decide how the cup tastes get their own colour and the
 // big cards; everything else is a knob you set once and rarely touch.
-const HERO = {dose: 'dose', ratio: 'ratio', temp: 'temp', bloom_time: 'bloom'};
+const HERO = {dose: 'dose', ratio: 'ratio', temp: 'temp', bloom_time: 'bloom',
+              bloom_temp: 'bloom'};
 
 const POST = (path, body) => fetch(path, {
   method: 'POST',
@@ -298,9 +496,12 @@ function paramCard(row) {
   if (hue) el.style.cssText = `--hue: var(--${hue}); --tint: var(--${hue}-soft)`;
   else el.style.cssText = '--hue: var(--accent); --tint: var(--accent-soft)';
 
-  const label = document.createElement('span');
+  const label = document.createElement('label');
   label.className = 'label';
-  label.textContent = row.unit ? `${row.label} · ${row.unit}` : row.label;
+  // Sentence case: only the first letter capital. (The server's labels are lower-case
+  // words; "RPM" is the acronym.)
+  const word = (row.label[0].toUpperCase() + row.label.slice(1)).replace(/rpm/i, 'RPM');
+  label.textContent = word;
   el.appendChild(label);
 
   let input;
@@ -320,6 +521,7 @@ function paramCard(row) {
     input.value = row.value;
   }
   input.id = 'p-' + row.key;
+  label.htmlFor = input.id;
   const commit = () => {
     const raw = input.value;
     params[row.key] = row.choices && typeof row.choices[0] === 'string' ? raw : Number(raw);
@@ -329,7 +531,29 @@ function paramCard(row) {
   input.addEventListener('input', () => {
     clearTimeout(input._t); input._t = setTimeout(commit, 250);
   });
-  el.appendChild(input);
+  // The value cell. The input fills it, so clicking anywhere on the row's right side edits
+  // the number. The unit is laid over the input, a `left` that tracks the length of the
+  // value (the number font is monospace, so characters are a fixed `ch` wide; the tight
+  // letter-spacing takes 0.02em off each), and ignores the pointer so clicks reach the input.
+  const val = document.createElement('div');
+  val.className = 'val';
+  val.appendChild(input);
+  if (row.unit) {
+    const at = document.createElement('span');
+    at.className = 'unit-at';
+    const unit = document.createElement('span');
+    unit.className = 'unit';
+    unit.textContent = row.unit === 'C' ? '\u00b0C' : row.unit;
+    at.appendChild(unit);
+    const place = () => {
+      const n = Math.max(1, String(input.value).length);
+      at.style.left = `calc(${n}ch - ${(n * 0.02).toFixed(2)}em)`;
+    };
+    place();
+    input.addEventListener('input', place);
+    val.appendChild(at);
+  }
+  el.appendChild(val);
 
   // Colour says whether this is on its default; the only thing left to offer is the
   // way back, and that is worth showing only on a card that has somewhere to go.
@@ -361,16 +585,189 @@ function renderParams(rows) {
   }
 }
 
+// --- saving the custom recipe ----------------------------------------------
+function openSave() {
+  if (staged || !planData || !planData.valid) {
+    if (planData && !planData.valid) alert(`Not saved \u2014 ${planData.error}`);
+    return;
+  }
+  $('save-name').value = planData.name;
+  $('save-dialog').showModal();
+  $('save-name').select();
+}
+
+async function saveRecipe() {
+  const name = $('save-name').value.trim();
+  if (!name) return;
+  try {
+    const d = await POST('/api/create', {params, name});
+    $('save-dialog').close();
+    await loadRecent();
+    await stage(d.file);
+  } catch (e) { alert(e.message); }
+}
+
+$('custom-match').addEventListener('click', () => {
+  const hit = matchingBrew();
+  if (hit) stage(hit.file);
+});
+$('custom-reset').addEventListener('click', () => stage(null));
+$('custom-save').addEventListener('click', openSave);
+$('save-cancel').addEventListener('click', () => $('save-dialog').close());
+$('save-go').addEventListener('click', saveRecipe);
+$('save-name').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); saveRecipe(); }
+});
+
+// --- colour -----------------------------------------------------------------
+// A recipe's colour is a hue plus "dark or light": the same saturation, and a lightness
+// at one end of the scale or the other, so white or black text is always the readable
+// choice. Only the resulting #rrggbb is stored; the tone is worked out from it again.
+
+function hslToHex(h, s, l) {
+  s /= 100; l /= 100;
+  const k = (n) => (n + h / 30) % 12, a = s * Math.min(l, 1 - l);
+  const f = (n) => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+  return '#' + [f(0), f(8), f(4)].map((v) =>
+    Math.round(v * 255).toString(16).padStart(2, '0')).join('');
+}
+
+function hexToHsl(hex) {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+  let h = 0;
+  if (d) {
+    h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    h = (h * 60 + 360) % 360;
+  }
+  const l = (max + min) / 2;
+  const s = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
+  return {h: Math.round(h), s: s * 100, l: l * 100};
+}
+
+/** The text for a background colour. White or black, whichever contrasts more (one of the
+ *  two always clears 4.5:1). In the mid-tones, where even the better of them is under 7:1,
+ *  the text is always white with a dark shadow behind it — never dark text with a light
+ *  shadow — and the shadow is what carries the legibility there. */
+function textFor(hex) {
+  const lin = (i) => {
+    const c = parseInt(hex.slice(i, i + 2), 16) / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  const y = 0.2126 * lin(1) + 0.7152 * lin(3) + 0.0722 * lin(5);
+  const white = 1.05 / (y + 0.05), black = (y + 0.05) / 0.05;
+  if (Math.max(white, black) < 7) {
+    return {tone: 'tone-dark',
+            shadow: '-1px 1px 1px rgba(0,0,0,.6)'};
+  }
+  return {tone: white >= black ? 'tone-dark' : 'tone-light', shadow: ''};
+}
+
+function paint(el, hex) {
+  el.classList.remove('tone-dark', 'tone-light');
+  el.style.background = hex || '';
+  el.style.textShadow = '';
+  if (!hex) return;
+  const t = textFor(hex);
+  el.classList.add(t.tone);
+  el.style.textShadow = t.shadow;
+}
+
+// --- the colour selector ------------------------------------------------------
+// HSV, because its picture is the familiar one: hue picks the colour, then one field gives
+// saturation (left to right) and brightness (bottom to top).
+let pick = {h: 28, s: 0.7, v: 0.45};
+
+function hsvToHex({h, s, v}) {
+  const f = (n) => {
+    const k = (n + h / 60) % 6;
+    return v - v * s * Math.max(0, Math.min(k, 4 - k, 1));
+  };
+  return '#' + [f(5), f(3), f(1)].map((x) =>
+    Math.round(x * 255).toString(16).padStart(2, '0')).join('');
+}
+
+function hexToHsv(hex) {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+  let h = 0;
+  if (d) {
+    h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    h = (h * 60 + 360) % 360;
+  }
+  return {h, s: max ? d / max : 0, v: max};
+}
+
+function renderColorDialog() {
+  const hex = hsvToHex(pick);
+  $('sv').style.background = `linear-gradient(to top, #000, transparent), ` +
+    `linear-gradient(to right, #fff, hsl(${pick.h} 100% 50%))`;
+  $('sv-thumb').style.left = `${pick.s * 100}%`;
+  $('sv-thumb').style.top = `${(1 - pick.v) * 100}%`;
+  $('color-hue').value = Math.round(pick.h) % 360;
+  if (document.activeElement !== $('color-hex')) $('color-hex').value = hex;
+  paint($('color-preview'), hex);
+}
+
+function openColor() {
+  if (!staged) return;
+  if (staged.color) pick = hexToHsv(staged.color);
+  $('color-preview-name').textContent = staged.name;
+  $('color-preview-sub').textContent = planData
+    ? `${planData.dose_g} g \u00b7 1:${planData.ratio} \u00b7 ${planData.total_ml} ml` : '';
+  renderColorDialog();
+  $('color-dialog').showModal();
+}
+
+async function saveColor(hex) {
+  try {
+    const d = await POST('/api/color', {file: staged.file, color: hex});
+    staged = {...staged, color: d.color};
+    $('color-dialog').close();
+    await loadRecent();
+  } catch (e) { alert(e.message); }
+}
+
+$('color-hue').addEventListener('input', (e) => { pick.h = Number(e.target.value); renderColorDialog(); });
+$('color-hex').addEventListener('input', (e) => {
+  const v = e.target.value.trim();
+  if (/^#[0-9a-f]{6}$/i.test(v)) { pick = hexToHsv(v.toLowerCase()); renderColorDialog(); }
+});
+$('color-hex').addEventListener('blur', renderColorDialog);
+{
+  const sv = $('sv');
+  const at = (e) => {
+    const r = sv.getBoundingClientRect();
+    pick.s = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+    pick.v = 1 - Math.min(1, Math.max(0, (e.clientY - r.top) / r.height));
+    renderColorDialog();
+  };
+  sv.addEventListener('pointerdown', (e) => { sv.setPointerCapture(e.pointerId); at(e); });
+  sv.addEventListener('pointermove', (e) => { if (sv.hasPointerCapture(e.pointerId)) at(e); });
+}
+$('color-cancel').addEventListener('click', () => $('color-dialog').close());
+$('color-save').addEventListener('click', () => saveColor(hsvToHex(pick)));
+
 // --- the staged brew --------------------------------------------------------
 function matchingBrew() {
   if (!planData || !planData.fingerprint) return null;
   return brews.find((b) => b.readable && b.fingerprint === planData.fingerprint) || null;
 }
 
-/** Stage a saved recipe: its parameters become the page's, and from here on every
- *  edit is written back to it. Passing null stages "new" at the defaults. */
-async function stage(file) {
-  clearTimeout(saveTimer);
+/** Does the staged recipe have edits that are not on disk? */
+function isDirty() {
+  if (!staged || staged.readonly || !staged.saved) return false;
+  return Object.keys(staged.saved).some((k) => String(params[k]) !== String(staged.saved[k]));
+}
+
+/** Stage a saved recipe: its parameters become the page's, to edit and then Save or
+ *  discard. Passing null stages the custom brew at the defaults. Leaving a recipe with
+ *  unsaved edits asks first, unless `force` (the edits went somewhere, e.g. a fork). */
+async function stage(file, force) {
+  if (!force && isDirty()) {
+    if (file === staged.file) return;     // re-clicking it must not reload over the edits
+    if (!confirm(`Discard your unsaved changes to \u201c${staged.name}\u201d?`)) return;
+  }
   if (!file) {
     staged = null; saveState = '';
     params = {...config.defaults};
@@ -382,52 +779,82 @@ async function stage(file) {
   const d = await r.json().catch(() => ({error: r.statusText}));
   if (!r.ok || d.error) { alert(stale(r, d) || d.error); return; }
   if (!d.editable) {
-    // Startable, but not something this generator can reproduce — so not something it
-    // can show as parameters either. Staging it would put a recipe's name over someone
-    // else's numbers, so it stays unstaged and you start it from the list.
-    alert(`\u201c${d.name}\u201d was not generated by this page, so its parameters ` +
-          `cannot be shown. You can still start it from the list.`);
+    // A recipe this generator cannot reproduce from parameters (hand-written, or saved
+    // before the generator's rules changed). It is staged read-only: it can be brewed,
+    // renamed, coloured and deleted — all of which act on the file as it is — but not
+    // edited, because showing parameters for it would put numbers over a brew they no
+    // longer describe, and editing them would rewrite it.
+    staged = {file: d.file, name: d.name, color: d.color, readonly: true, summary: d.summary};
+    saveState = '';
+    params = {...config.defaults};   // the fields are dimmed and inert; not another brew's
+    await refresh();            // keeps the fields on screen; renderPlan locks them
+    loadRecent();
     return;
   }
-  staged = {file: d.file, name: d.name};
-  saveState = 'saved';
-  justStaged = true;
   params = {};
   for (const k of Object.keys(config.defaults)) params[k] = d.params[k];
+  staged = {file: d.file, name: d.name, color: d.color, saved: {...params}};
+  saveState = '';
   await refresh();
   loadRecent();
 }
 
-/** Autosave. Only ever fires for a staged, editable, valid recipe. */
-function scheduleSave() {
-  if (justStaged) { justStaged = false; return; }
-  if (!staged || !planData || !planData.valid) return;
-  clearTimeout(saveTimer);
+/** Write the staged recipe's edits to its file. Only for an editable, valid recipe. */
+async function saveEdits() {
+  if (!isDirty() || !planData || !planData.valid) return;
   saveState = 'saving';
-  saveTimer = setTimeout(async () => {
-    try {
-      const d = await POST('/api/save', {file: staged.file, params});
-      staged = {...staged, name: d.name};     // an unnamed brew's name follows its numbers
-      saveState = 'saved';
-      loadRecent();
-    } catch (e) {
-      saveState = 'error: ' + e.message;
-    }
-    renderStaged();
-  }, 500);
+  renderStaged();
+  try {
+    const d = await POST('/api/save', {file: staged.file, params});
+    // an unnamed brew's name follows its numbers
+    staged = {...staged, name: d.name, saved: {...params}};
+    saveState = '';
+    await loadRecent();
+  } catch (e) {
+    saveState = 'error: ' + e.message;
+  }
+  syncBusy();
 }
+
+/** Put the page back to the staged recipe as it is on disk. */
+function discardEdits() {
+  if (!staged || !staged.saved) return;
+  params = {...staged.saved};
+  saveState = '';
+  refresh();
+}
+
+$('edit-save').addEventListener('click', saveEdits);
+$('edit-discard').addEventListener('click', discardEdits);
+window.addEventListener('beforeunload', (e) => {
+  if (isDirty()) { e.preventDefault(); e.returnValue = ''; }
+});
 
 function renderStaged() {
   const box = $('staged'), name = $('staged-name'), btns = $('staged-btns');
   const hit = !staged && matchingBrew();
   box.className = staged ? 'saved' : 'fresh';
   name.hidden = !staged;
+  $('custom-actions').hidden = !!staged;
+  // The custom brew is, parameter for parameter, a recipe that is already saved: the
+  // button says so, and is the way to it.
+  $('custom-match').hidden = !hit;
+  if (hit) $('custom-match').textContent = `Matches: ${hit.name || hit.stem}`;
+  // The custom recipe's title is fixed text: no input, no save status, no actions here.
+  $('staged-title').hidden = !!staged;
   if (staged && document.activeElement !== name) name.value = staged.name;
-  $('staged-what').textContent = staged ? 'Staged' : 'New brew';
-  $('staged-note').textContent = staged
-    ? ({saving: '\u2014 saving\u2026', saved: '\u2014 saved'}[saveState] || saveState)
-    : (hit ? `\u2014 not saved, but identical to \u201c${hit.name || hit.stem}\u201d`
-           : '\u2014 nothing saved brews this');
+  paint($('brewside'), staged && staged.color);
+  const dirty = isDirty();
+  $('staged-note').textContent = !staged ? ''
+    : staged.readonly ? 'read-only'
+    : saveState === 'saving' ? 'saving\u2026'
+    : saveState ? saveState
+    : dirty ? 'unsaved changes' : 'saved';
+  $('edit-actions').hidden = !dirty;
+  const invalid = planData && !planData.valid;
+  $('edit-save').disabled = invalid || saveState === 'saving';
+  $('edit-save').title = invalid ? `Not saveable \u2014 ${planData.error}` : '';
+  $('fields').classList.toggle('locked', !!(staged && staged.readonly));
 
   btns.innerHTML = '';
   const add = (label, cls, fn, title) => {
@@ -435,34 +862,30 @@ function renderStaged() {
     b.className = 'small' + (cls ? ' ' + cls : '');
     b.textContent = label;
     if (title) b.title = title;
-    b.disabled = isRunning();
     b.addEventListener('click', fn);
     btns.appendChild(b);
-    return b;
   };
-  // "New" is also the full reset: it always lands on an unsaved brew at the defaults,
-  // whether you were editing a file or had already wandered off the defaults in a new one.
-  const dirty = Object.keys(config.defaults).some((k) => params[k] !== config.defaults[k]);
-  if (staged || dirty) add('New', '', () => stage(null), 'Full reset: defaults, nothing saved');
   if (staged) {
-    add('Fork', '', doFork, 'Save these settings as a new brew, and edit that instead');
+    if (!staged.readonly) {
+      add('Fork', '', doFork,
+          'Save these settings, unsaved changes included, as a new brew and edit that ' +
+          'instead. This one stays as it is saved.');
+    }
+    add('Color', '', openColor, 'Colour this brew in the list and here');
     add('Delete', 'danger', () => doDelete(staged.file, staged.name));
-  } else {
-    if (hit) add('Stage that one', '', () => stage(hit.file));
-    add('Save as a brew', 'primary', doFork, 'Write these settings to a new saved brew');
   }
-  // Mark the row in the saved list too, so the two views agree.
+  // Mark the list too, so the two views agree: the staged item is selected.
   document.querySelectorAll('.brew-row').forEach((row) => {
-    row.classList.toggle('current', !!staged && row.dataset.file === staged.file);
-    row.classList.toggle('twin', !staged && !!hit && row.dataset.file === hit.file);
+    const isNew = row.dataset.file === '';
+    row.classList.toggle('current', staged ? row.dataset.file === staged.file : isNew);
   });
 }
 
 async function doFork() {
   try {
-    const d = await POST('/api/fork', {params, name: staged ? staged.name : planData.name});
+    const d = await POST('/api/fork', {params, name: staged.name, color: staged.color});
     await loadRecent();
-    await stage(d.file);
+    await stage(d.file, true);          // the edits went into the fork
   } catch (e) { alert(e.message); }
 }
 
@@ -480,24 +903,29 @@ async function doDelete(file, label) {
 function renderPlan(p) {
   planData = p;
 
-  // One line of prose: what this is, and every way it departs from the default.
-  // A sanity check you read left to right, not a second copy of the cards above.
+  // What this brew is, as a few short lines: its name, how far it is from the defaults,
+  // and the water, temperatures and pours those parameters generate.
   const changed = lastRows.filter((r) => !r.is_default);
-  const who = esc(staged ? staged.name : 'New brew');
-  const head = changed.length
-    ? `<b>${who}</b> \u2014 off the defaults: <span class="chg">` +
-      changed.map((r) => `${esc(r.label.toLowerCase())} ${esc(r.display)}`).join(', ') +
-      `</span>`
-    : `<b>${who}</b> \u2014 every parameter at its default`;
-  // ...and the recipe those parameters generate, folded in: the pours, in order, with
-  // the temperature stepping down. Enough to sanity-check, nothing to read twice.
   const temps = p.pours.map((x) => x.temp_c);
-  const pours = p.pours.map((x, i) =>
-    i === 0 ? `<em>${x.ml}</em>` : String(x.ml)).join(' + ');
-  $('summary').innerHTML = head +
-    `<span class="pours">${p.total_ml} ml = ${pours} \u00b7 ` +
-    `${temps[0]}\u2192${temps[temps.length - 1]} \u00b0C \u00b7 ` +
-    `${p.pours.length} pours \u00b7 ${p.grind === 0 ? 'pre-ground' : 'grind ' + p.grind}</span>`;
+  const pours = p.pours.map((x, i) => (i === 0 ? `<em>${x.ml}</em>` : String(x.ml))).join(' + ');
+  const line = (k, v, cls) => `<dt>${k}</dt><dd${cls ? ` class="${cls}"` : ''}>${v}</dd>`;
+  if (staged && staged.readonly) {
+    $('summary').innerHTML =
+      line('Recipe', esc(staged.summary || '')) +
+      line('Note', 'Saved before the generator\u2019s rules changed, or not made by it. ' +
+                   'It brews exactly as saved but can\u2019t be edited here.', 'none');
+    $('banners').innerHTML = '';
+    syncBusy();
+    return;
+  }
+  $('summary').innerHTML =
+    (changed.length
+      ? line('Changed', changed.map((r) => `${esc(r.label.toLowerCase())} ${esc(r.display)}`)
+                               .join(', '))
+      : line('Changed', 'nothing, all defaults', 'none')) +
+    line('Water', `${p.total_ml} ml = ${pours}`) +
+    line('Temp', `bloom ${temps[0]} \u00b7 pours ${temps[1]} \u2192 ${temps[temps.length - 1]} \u00b0C`) +
+    line('Pours', `${p.pours.length} \u00b7 ${p.grind === 0 ? 'pre-ground' : 'grind ' + p.grind}`);
 
   const banners = [];
   if (!p.valid) banners.push(`<div class="banner bad"><b>Invalid</b> ${esc(p.error)}</div>`);
@@ -506,7 +934,6 @@ function renderPlan(p) {
     `app sends. The protocol splits it, but that frame shape is untested on hardware.</div>`);
   $('banners').innerHTML = banners.join('');
 
-  scheduleSave();
   syncBusy();
 }
 
@@ -528,57 +955,48 @@ async function refresh() {
 async function loadRecent() {
   const d = await (await fetch('/api/recent')).json();
   brews = d.brews;
-  if (!brews.length) {
-    $('recent').innerHTML = '<div class="muted">No saved brews yet.</div>';
-    renderStaged();
-    return;
-  }
-  $('recent').innerHTML = brews.map((b) => `
-    <div class="brew-row" data-file="${esc(b.file)}">
-      <div>
-        <input class="name-edit" value="${esc(b.name || b.stem)}"
-               ${b.readable ? '' : 'disabled'} spellcheck="false">
-        <div class="sum">${esc(b.summary)}</div>
-      </div>
-      <div class="age">${b.brewed ? 'brewed ' : 'saved '}${esc(b.age)}</div>
-      <div class="btns">
-        <button class="small" data-stage="${esc(b.file)}" ${b.readable ? '' : 'disabled'}>Stage</button>
-        <button class="small danger" data-start="${esc(b.file)}" ${b.readable ? '' : 'disabled'}>Brew</button>
-        <button class="small ghost" data-del="${esc(b.file)}" title="Delete">\u2715</button>
-      </div>
-    </div>`).join('');
-  $('recent').querySelectorAll('[data-stage]').forEach((btn) =>
-    btn.addEventListener('click', () => stage(btn.dataset.stage)));
-  // Starting a saved brew stages it first, so the page is showing what is brewing.
-  $('recent').querySelectorAll('[data-start]').forEach((btn) =>
-    btn.addEventListener('click', async () => {
-      await stage(btn.dataset.start);
-      openStart({file: btn.dataset.start});
-    }));
-  $('recent').querySelectorAll('[data-del]').forEach((btn) =>
-    btn.addEventListener('click', () => {
-      const b = brews.find((x) => x.file === btn.dataset.del);
-      doDelete(btn.dataset.del, b ? (b.name || b.stem) : btn.dataset.del);
-    }));
-  $('recent').querySelectorAll('.name-edit').forEach((input) => {
-    const file = input.closest('.brew-row').dataset.file;
-    const was = input.value;
-    const save = async () => {
-      const name = input.value.trim();
-      if (name === was) return;
-      if (!name) { input.value = was; return; }
-      try {
-        const d = await POST('/api/rename', {file, name});
-        if (staged && staged.file === file) staged = {...staged, file: d.file, name: d.name};
-        await loadRecent();
-      } catch (e) { alert(e.message); input.value = was; }
-    };
-    input.addEventListener('blur', save);
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
-      if (e.key === 'Escape') { input.value = was; input.blur(); }
+  // A collection of brews whose first item is the blank one. Every item does one thing
+  // when clicked — stage it — and nothing on a card edits it; that happens up in the
+  // staged bar, on the item that is selected.
+  //
+  // The list is reconciled, not rebuilt: a card that is still in the list stays the same
+  // DOM node and only has its contents updated. Rebuilding replaced the card under the
+  // pointer, which dropped its :hover (and with it the hover slide) the moment you
+  // clicked it.
+  const box = $('recent');
+  const have = new Map([...box.children].map((el) => [el.dataset.file, el]));
+  const wanted = [{file: '', custom: true}, ...brews.map((b) => ({
+    file: b.file, name: b.name || b.stem, sum: b.summary, off: !b.readable, color: b.color,
+    age: (b.brewed ? 'brewed ' : 'saved ') + b.age}))];
+
+  const make = (file) => {
+    const row = document.createElement('div');
+    row.className = 'brew-row';
+    row.dataset.file = file;
+    row.setAttribute('role', 'button');
+    const go = () => { if (!row.classList.contains('off')) stage(row.dataset.file || null); };
+    row.addEventListener('click', go);
+    row.addEventListener('keydown', (e) => {
+      if (e.target !== row) return;
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); }
     });
+    return row;
+  };
+
+  wanted.forEach((w, i) => {
+    const row = have.get(w.file) || make(w.file);
+    have.delete(w.file);
+    row.classList.toggle('custom', !!w.custom);
+    row.classList.toggle('off', !!w.off);
+    paint(row, w.color);
+    row.tabIndex = w.off ? -1 : 0;
+    row.innerHTML = w.custom
+      ? '<div class="nm">Custom Brew</div>'
+      : `<div class="nm">${esc(w.name)}</div><div class="age">${esc(w.age)}</div>
+         <div class="sum">${esc(w.sum)}</div>`;
+    if (box.children[i] !== row) box.insertBefore(row, box.children[i] || null);
   });
+  have.forEach((el) => el.remove());                 // cards whose recipe is gone
   renderStaged();
 }
 
@@ -593,9 +1011,7 @@ async function go(body) {
     logSince = 0; $('run-log').textContent = '';
     showRun(d.run);
     poll();
-    await loadRecent();
-    // Starting an unsaved brew wrote it to the cache — stage what actually ran.
-    if (!staged && d.run.file) await stage(d.run.file);
+    await loadRecent();       // a saved recipe that was brewed moves to the top
   } catch (e) {
     alert(e.message);
   }
@@ -603,15 +1019,36 @@ async function go(body) {
 
 function showRun(run) {
   currentRun = run;
-  $('run-panel').hidden = false;
+  renderRun(run);
   syncBusy();
 }
 
-/** Brew and the staged-bar buttons follow whether a run is live. This must not go back
- *  through renderPlan: that schedules an autosave, and polling would then rewrite the
- *  staged file every second for as long as the brew runs. */
+/** The top of the run column: the recipe the machine was handed (from the run, not the
+ *  staged brew — you can stage and edit something else while it runs) and how it went. */
+function renderRun(run) {
+  const card = $('run-card');
+  const d = run.details || {};
+  const [cls, state] = !run.done ? ['live', run.started_brew ? 'brewing\u2026' : 'loading\u2026']
+    : run.returncode === 0 ? ['ok', run.started_brew ? 'finished' : 'loaded']
+    : ['bad', `failed (exit ${run.returncode})`];
+  const pours = (d.pours || []).map((p) =>
+    `<tr><td>${esc(p.label)}</td><td class="n">${p.ml}</td><td class="n">${p.temp_c}</td>` +
+    `<td class="n">${p.pause_s} s</td><td>${esc(p.pattern)}</td></tr>`).join('');
+  paint(card, d.color);
+  card.innerHTML =
+    `<div class="eyebrow">${run.done ? 'Last brew' : 'Brewing'}</div>` +
+    `<div class="run-name">${esc(d.name || run.recipe)}</div>` +
+    `<div class="run-state ${cls}">${state}</div>` +
+    (d.summary ? `<div class="run-sum">${esc(d.summary)}</div>` : '') +
+    (pours ? '<table class="run-pours"><thead><tr><th>Pour</th><th class="n">ml</th>' +
+             '<th class="n">\u00b0C</th><th class="n">wait</th><th>pattern</th></tr>' +
+             `</thead><tbody>${pours}</tbody></table>` : '');
+}
+
+/** Brew and the staged-bar buttons follow whether a run is live. */
 function syncBusy() {
-  $('start').disabled = !planData || !planData.valid || isRunning();
+  const ok = (staged && staged.readonly) || (planData && planData.valid);
+  $('start').disabled = !ok || isRunning();
   renderStaged();
 }
 
@@ -632,11 +1069,15 @@ async function poll() {
 
 // --- the start gate --------------------------------------------------------
 function openStart(from) {
-  pending = from || (staged ? {file: staged.file} : {});
+  // A saved recipe with unsaved edits brews what is on screen, as a one-off: the file
+  // is only ever changed by Save.
+  const dirty = isDirty();
+  pending = from || (staged && !dirty ? {file: staged.file} : {});
   const file = pending.file;
   const cached = file ? brews.find((b) => b.file === file) : null;
   // Shown, not asked for: the name is whatever the brew is already called.
-  pending.name = cached ? (cached.name || cached.stem) : planData.name;
+  pending.name = cached ? (cached.name || cached.stem) : dirty ? staged.name : planData.name;
+  $('start-note').hidden = !dirty;
   $('start-name').textContent = pending.name;
   $('start-summary').textContent = cached
     ? cached.summary

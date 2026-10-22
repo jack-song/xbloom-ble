@@ -279,9 +279,13 @@ The page shows, side by side:
   the brew is visible at a glance), temperature, pattern, rpm and the pause after it;
 - **the validation**, from the same `Recipe.validate()` the CLI uses, live on every
   keystroke, plus a warning if any pour exceeds the 127 ml the phone app ever sends;
-- **the live run** — the `xbloom brew` output streaming into the page;
+- **the live run**, in a column of its own — the recipe the machine was handed (name,
+  summary and every pour, read from the file that ran) with the `xbloom brew` output
+  streaming in under it;
 - **recent brews**, re-loadable *as they are on disk* (no regeneration, so a repeat is
-  byte-identical to what ran last time).
+  byte-identical to what ran last time). Editing a staged one changes only the page until
+  you press *Save*; *Discard changes* puts it back. Brewing with unsaved edits brews what
+  is on screen as a one-off and leaves the saved recipe alone.
 
 **Safety.** The two buttons are separate actions, as everywhere else in this project.
 *Load onto machine* only arms it — you approve on the machine, and that route cannot

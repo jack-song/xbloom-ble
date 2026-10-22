@@ -136,7 +136,9 @@ def _old_rule_recipe(name=None):
     text = text.replace("temp_c: 80", "temp_c: 91").replace("temp_c: 91, pattern: center",
                                                           "temp_c: 90, pattern: center")
     text = text.replace("temp_c: 88", "temp_c: 89")
-    return text.replace(" bloom_temp=80", "")
+    return "\n".join(ln for ln in text.splitlines()
+                     if not ln.startswith(brewgen.COLOR_MARK)) \
+        .replace(" bloom_temp=80", "") + "\n"
 
 
 def test_strict_reading_still_refuses_an_old_rule_recipe():
@@ -147,13 +149,15 @@ def test_strict_reading_still_refuses_an_old_rule_recipe():
 def test_migrating_an_old_rule_recipe_carries_it_forward(tmp_path):
     path = tmp_path / "2026-01-01-old.yaml"
     path.write_text(_old_rule_recipe(), encoding="utf-8")
+    brewgen.set_color(path, "#336699")
     assert brewgen.migrate_cached(path) is True
     got = brewgen.params_from_yaml(path.read_text(encoding="utf-8"))
     assert got is not None
     # the file's own bloom and first-main-pour temperatures are kept...
     assert (got.bloom_temp, got.temp) == (91, 90)
-    # ...and it now brews under the current rules
+    # ...it now brews under the current rules, and keeps its colour
     assert [p["temp_c"] for p in brewgen.build_pours(got)] == [91, 90, 89, 87]
+    assert brewgen.cached_color(path.read_text(encoding="utf-8")) == "#336699"
     assert brewgen.migrate_cached(path) is False        # already current
 
 
@@ -408,6 +412,76 @@ def test_autosave_does_not_overwrite_a_name_somebody_typed(tmp_path):
     path, _ = brewgen.write_cached(brewgen.BrewParams(dose=10.0, name="Morning"), tmp_path)
     brewgen.save_cached(path, brewgen.BrewParams(dose=12.0))
     assert brewgen.cached_name(path) == "Morning"
+
+
+# --- a recipe's label colour -------------------------------------------------
+def test_a_colour_is_a_comment_so_it_never_changes_what_a_recipe_matches(tmp_path):
+    path, _ = brewgen.write_cached(brewgen.BrewParams(dose=15.0), tmp_path)
+    before = brewgen.fingerprint(path.read_text(encoding="utf-8"))
+    brewgen.set_color(path, "#3366aa")
+    text = path.read_text(encoding="utf-8")
+    assert brewgen.cached_color(text) == "#3366aa"
+    assert brewgen.fingerprint(text) == before
+    assert brewgen.validate_yaml(text) is None
+
+
+def test_a_colour_must_be_rrggbb(tmp_path):
+    path, _ = brewgen.write_cached(brewgen.BrewParams(dose=15.0), tmp_path)
+    for bad in ("red", "#fff", "#12345g", "3366aa", "#3366aa; x"):
+        with pytest.raises(ParamError):
+            brewgen.set_color(path, bad)
+
+
+def test_the_colour_survives_autosave_rename_and_fork(tmp_path):
+    path, _ = brewgen.write_cached(brewgen.BrewParams(dose=15.0), tmp_path)
+    brewgen.set_color(path, "#223344")
+    brewgen.save_cached(path, brewgen.BrewParams(dose=15.0, temp=85))
+    assert brewgen.cached_color(path.read_text(encoding="utf-8")) == "#223344"
+    moved = brewgen.rename_cached(path, "Morning", tmp_path)
+    assert brewgen.cached_color(moved.read_text(encoding="utf-8")) == "#223344"
+    fork = brewgen.fork_cached(brewgen.BrewParams(dose=15.0), tmp_path, color="#223344")
+    assert brewgen.cached_color(fork.read_text(encoding="utf-8")) == "#223344"
+    assert brewgen.recent_brews(tmp_path, limit=9)[0].color == "#223344"
+
+
+def test_a_missing_colour_is_generated_once_in_the_label_palette(tmp_path):
+    import random
+    path, _ = brewgen.write_cached(brewgen.BrewParams(dose=15.0), tmp_path)
+    first = brewgen.ensure_color(path, random.Random(1))
+    assert brewgen.ensure_color(path, random.Random(2)) == first          # kept, not re-rolled
+    assert brewgen.cached_color(path.read_text(encoding="utf-8")) == first
+    assert brewgen.validate_yaml(path.read_text(encoding="utf-8")) is None
+
+
+def test_generated_colours_are_dark_or_light_never_in_between():
+    import random
+    rng = random.Random(7)
+    lights = set()
+    for _ in range(200):
+        c = brewgen.random_color(rng)
+        r, g, b = (int(c[i:i + 2], 16) for i in (1, 3, 5))
+        lights.add((max(r, g, b) + min(r, g, b)) / 2 / 255 * 100 // 10)
+    assert lights <= {1, 2, 8}           # ~20% and ~82% lightness, with rounding
+
+
+# --- saving the custom recipe as a new, named one ----------------------------
+def test_create_cached_uses_exactly_the_name_given_and_a_colour(tmp_path):
+    path = brewgen.create_cached(brewgen.BrewParams(dose=15.0), "Sunday Long", tmp_path)
+    assert brewgen.cached_name(path) == "Sunday Long"
+    assert brewgen.cached_color(path.read_text(encoding="utf-8"))
+    assert brewgen.params_from_yaml(path.read_text(encoding="utf-8")).dose == 15.0
+
+
+def test_create_cached_never_overwrites_an_existing_recipe(tmp_path):
+    a = brewgen.create_cached(brewgen.BrewParams(dose=15.0), "Same", tmp_path)
+    b = brewgen.create_cached(brewgen.BrewParams(dose=15.0), "Same", tmp_path)
+    assert a != b and a.exists() and b.exists()
+
+
+def test_create_cached_needs_a_sane_name(tmp_path):
+    for bad in ("", "   ", "x" * 81, "two\nlines"):
+        with pytest.raises(ParamError):
+            brewgen.create_cached(brewgen.BrewParams(), bad, tmp_path)
 
 
 # --- "how long ago" is by calendar day, not by 24-hour spans ------------------

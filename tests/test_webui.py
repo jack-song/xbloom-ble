@@ -27,12 +27,12 @@ def server(tmp_path, monkeypatch):
     """A live server on an ephemeral port whose launches are recorded, not executed."""
     launched: list[dict] = []
 
-    def fake_launch(self, path, *, start, name, cwd, address, timeout, debug):
+    def fake_launch(self, path, *, start, name, cwd, address, timeout, debug, details=None):
         argv = brewgen.brew_argv(path, start=start, debug=debug, address=address,
                                  timeout=timeout)
         launched.append({"path": Path(path), "start": start, "name": name, "argv": argv})
         run = webui.Run(id=len(launched), argv=argv, recipe=name, file=Path(path).name,
-                        started_brew=start, started_at=0.0)
+                        started_brew=start, started_at=0.0, details=details or {})
         run.returncode = 0                  # already finished; nothing to poll
         self._run = run
         return run
@@ -135,10 +135,10 @@ def test_load_never_passes_start(server):
     assert data["run"]["mode"] == "load only"
 
 
-def test_load_caches_the_recipe_it_loaded(server):
+def test_load_writes_the_recipe_it_loaded_to_the_scratch_file(server):
     post(server, "/api/load", {"params": {"dose": 15}})
     path = server.launched[0]["path"]
-    assert path.parent == server.root
+    assert path.parent == server.root / brewgen.SCRATCH_DIR     # loaded, but not saved
     assert path.read_text(encoding="utf-8") == brewgen.to_yaml(brewgen.BrewParams(dose=15.0))
 
 
@@ -184,16 +184,59 @@ def test_start_with_the_full_gate_brews(server):
     assert call["start"] is True and "--start" in call["argv"]
     assert call["name"] == "Sunday Filter"
     assert data["run"]["mode"] == "load + START"
-    # The name reached the recipe and the cache filename, as the terminal gate does.
-    assert "sundayfilter" in call["path"].name
+    # The name reached the recipe the machine was handed.
     assert brewgen.cached_name(call["path"]) == "Sunday Filter"
 
 
-def test_start_keeping_the_derived_name_does_not_rename_the_cache_file(server):
-    derived = brewgen.derived_name(brewgen.BrewParams(dose=15.0))
-    post(server, "/api/start", {"params": {"dose": 15}, "acknowledge": True, "name": derived})
-    assert server.launched[0]["path"].name == brewgen.cache_filename(
-        brewgen.BrewParams(dose=15.0))
+def test_a_run_carries_the_recipe_it_brewed(server):
+    """The page's "what is brewing" card comes from the run, read from the file the
+    machine was handed — so staging another recipe afterwards cannot change it."""
+    path, _ = brewgen.write_cached(brewgen.BrewParams(dose=15.0, pours=2), server.root)
+    brewgen.set_color(path, "#336699")
+    status, data = post(server, "/api/start",
+                        {"file": path.name, "acknowledge": True, "name": "Morning"})
+    assert status == 200
+    details = data["run"]["details"]
+    assert details["name"] == "Morning" and details["color"] == "#336699"
+    assert "15 g" in details["summary"]
+    assert [p["pause_s"] for p in details["pours"]] == [50, 15, 19]
+    assert get(server, "/api/run")[1]["run"]["details"] == details
+
+
+def test_brewing_the_custom_recipe_does_not_make_a_saved_recipe(server):
+    """A one-off brew is not a recipe: nothing appears in the saved list, nothing is
+    marked as brewed, and the file the machine was given is out of the cache listing."""
+    post(server, "/api/start",
+         {"params": {"dose": 15}, "acknowledge": True, "name": "One-off"})
+    call = server.launched[0]
+    assert call["path"].parent.name == brewgen.SCRATCH_DIR and call["path"].exists()
+    assert list(brewgen.cache_dir(server.root).glob("*.yaml")) == []
+    assert get(server, "/api/recent")[1]["brews"] == []
+    assert brewgen._ledger(server.root) == {}
+
+
+def test_a_second_custom_brew_reuses_the_scratch_file(server):
+    for dose in (12, 15):
+        post(server, "/api/start",
+             {"params": {"dose": dose}, "acknowledge": True, "name": "One-off"})
+    assert server.launched[0]["path"] == server.launched[1]["path"]
+    assert brewgen.params_from_yaml(server.launched[1]["path"].read_text()).dose == 15.0
+
+
+def test_the_scratch_file_cannot_be_named_through_the_api(server):
+    post(server, "/api/start",
+         {"params": {"dose": 15}, "acknowledge": True, "name": "One-off"})
+    for route in ("/api/load", "/api/delete", "/api/color", "/api/rename"):
+        status, _ = post(server, route, {"file": ".scratch/custom-brew.yaml", "name": "x",
+                                         "color": "#112233"})
+        assert status == 400, route
+    assert get(server, "/api/recipe?file=.scratch/custom-brew.yaml")[0] == 400
+
+
+def test_brewing_a_saved_recipe_still_marks_it_brewed(server):
+    path, _ = brewgen.write_cached(brewgen.BrewParams(dose=15.0), server.root)
+    post(server, "/api/start", {"file": path.name, "acknowledge": True, "name": path.stem})
+    assert get(server, "/api/recent")[1]["brews"][0]["brewed"] is True
 
 
 # --- SAFETY: a cross-origin page cannot reach the brewing routes ------------
@@ -350,3 +393,67 @@ def test_only_a_start_marks_a_brew_as_brewed(server):
                                             "name": "Mine"})
     assert status == 200
     assert get(server, "/api/recent")[1]["brews"][0]["brewed"] is True
+
+
+def test_color_sets_a_recipe_colour_without_brewing(server):
+    path, _ = brewgen.write_cached(brewgen.BrewParams(dose=15.0), server.root)
+    status, data = post(server, "/api/color", {"file": path.name, "color": "#3366AA"})
+    assert status == 200 and data["color"] == "#3366aa"
+    assert get(server, "/api/recent")[1]["brews"][0]["color"] == "#3366aa"
+    assert get(server, "/api/recipe?file=" + path.name)[1]["color"] == "#3366aa"
+    assert server.launched == []
+
+
+def test_there_is_no_clearing_a_colour(server):
+    path, _ = brewgen.write_cached(brewgen.BrewParams(dose=15.0), server.root)
+    post(server, "/api/color", {"file": path.name, "color": "#3366aa"})
+    status, data = post(server, "/api/color", {"file": path.name, "color": ""})
+    assert status == 400 and "colour" in data["error"]
+    assert get(server, "/api/recent")[1]["brews"][0]["color"] == "#3366aa"
+
+
+def test_a_recipe_with_no_colour_is_given_one_and_keeps_it(server):
+    path, _ = brewgen.write_cached(brewgen.BrewParams(dose=15.0), server.root)
+    assert brewgen.cached_color(path.read_text(encoding="utf-8")) is None
+    first = get(server, "/api/recent")[1]["brews"][0]["color"]
+    assert first and first.startswith("#") and len(first) == 7
+    assert get(server, "/api/recent")[1]["brews"][0]["color"] == first   # not re-rolled
+    assert brewgen.cached_color(path.read_text(encoding="utf-8")) == first
+
+
+def test_color_rejects_a_bad_value_and_needs_the_local_header(server):
+    path, _ = brewgen.write_cached(brewgen.BrewParams(dose=15.0), server.root)
+    status, _ = post(server, "/api/color", {"file": path.name, "color": "red"})
+    assert status == 400
+    status, _ = post(server, "/api/color", {"file": path.name, "color": "#112233"},
+                     local=False)
+    assert status == 403
+
+
+def test_create_saves_a_named_recipe_and_spawns_nothing(server):
+    status, data = post(server, "/api/create",
+                        {"params": {"dose": 15, "temp": 88}, "name": "Sunday Long"})
+    assert status == 200 and data["name"] == "Sunday Long" and data["color"]
+    got = get(server, "/api/recipe?file=" + data["file"])[1]
+    assert got["params"]["temp"] == 88 and got["editable"] is True
+    assert server.launched == []
+
+
+def test_create_refuses_an_invalid_recipe_or_a_missing_name(server):
+    assert post(server, "/api/create", {"params": {"dose": 0}, "name": "X"})[0] == 400
+    assert post(server, "/api/create", {"params": {"dose": 15}, "name": " "})[0] == 400
+    assert post(server, "/api/create", {"params": {}, "name": "X"}, local=False)[0] == 403
+    assert list(brewgen.cache_dir(server.root).glob("*.yaml")) == []
+
+
+def test_opening_a_recipe_saved_under_the_old_rules_migrates_it(server):
+    """It is carried forward when opened: the page gets parameters for it and the file
+    is rewritten to match, so what is shown and what brews are the same thing."""
+    path, _ = brewgen.write_cached(brewgen.BrewParams(), server.root)
+    old = path.read_text(encoding="utf-8").replace("temp_c: 80", "temp_c: 91") \
+        .replace(" bloom_temp=80", "")
+    path.write_text(old, encoding="utf-8")
+    assert brewgen.params_from_yaml(old) is None
+    got = get(server, "/api/recipe?file=" + path.name)[1]
+    assert got["editable"] is True and got["params"]["bloom_temp"] == 91
+    assert brewgen.params_from_yaml(path.read_text(encoding="utf-8")) is not None

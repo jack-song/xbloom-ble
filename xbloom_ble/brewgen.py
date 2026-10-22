@@ -20,7 +20,9 @@ the web UI — because only the front-end can tell whether anyone answered.
 
 from __future__ import annotations
 
+import colorsys
 import json
+import random
 import re
 import subprocess
 import sys
@@ -372,7 +374,7 @@ def legacy_params(text: str) -> BrewParams | None:
 
 def migrate_cached(path: Path) -> bool:
     """Bring an older generator-made recipe up to the current rules, in place. → whether
-    it was changed. Its name is kept; its pours are regenerated.
+    it was changed. Its name and colour are kept; its pours are regenerated.
 
     Called when a recipe is opened for editing, so that what the page shows as its
     parameters and what the file brews are the same thing from then on.
@@ -383,7 +385,7 @@ def migrate_cached(path: Path) -> bool:
     legacy = legacy_params(text)
     if legacy is None:
         return False
-    path.write_text(to_yaml(legacy), encoding="utf-8")
+    path.write_text(with_color(to_yaml(legacy), cached_color(text)), encoding="utf-8")
     return True
 
 
@@ -427,6 +429,74 @@ def _pours_block(text: str) -> list[dict[str, str]]:
         if m:
             out.append(dict(kv.split(": ", 1) for kv in m.group(1).split(", ") if ": " in kv))
     return out
+
+
+# Colours the generator picks for a recipe that has none. Any colour can be set from the
+# page; these only decide what a recipe gets until someone does: any hue, either clearly
+# dark or clearly pale, so a fresh recipe is distinct from its neighbours and readable.
+COLOR_SAT = 100
+COLOR_L_DARK = 20
+COLOR_L_LIGHT = 82
+
+COLOR_MARK = "# color: "
+_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+
+def cached_color(text: str) -> str | None:
+    """The ``#rrggbb`` a recipe has been given, or None.
+
+    A colour is a label, like the name, and is stored the way the parameter line is: as a
+    comment. That keeps it out of what the machine is sent and out of
+    :func:`fingerprint`, so recolouring a brew never changes what it matches.
+    """
+    for line in text.splitlines():
+        if line.startswith(COLOR_MARK):
+            value = line[len(COLOR_MARK):].strip()
+            return value.lower() if _COLOR_RE.match(value) else None
+    return None
+
+
+def with_color(text: str, color: str | None) -> str:
+    """``text`` with its colour line replaced by ``color`` (or removed when None)."""
+    if color is not None and not _COLOR_RE.match(color):
+        raise ParamError("a colour is a #rrggbb value")
+    lines = [ln for ln in text.splitlines() if not ln.startswith(COLOR_MARK)]
+    if color is not None:
+        at = next((i for i, ln in enumerate(lines) if ln.startswith("name:")), len(lines))
+        lines.insert(at, COLOR_MARK + color.lower())
+    return "\n".join(lines) + "\n"
+
+
+def hsl_hex(hue: float, light: float, sat: float = COLOR_SAT) -> str:
+    """``#rrggbb`` for a hue (0-360) and a lightness (0-100) at the label saturation."""
+    r, g, b = colorsys.hls_to_rgb((hue % 360) / 360, light / 100, sat / 100)
+    return "#" + "".join(f"{round(v * 255):02x}" for v in (r, g, b))
+
+
+def random_color(rng: random.Random | None = None) -> str:
+    """A fresh label colour: any hue, dark or light by coin toss."""
+    rng = rng or random.Random()
+    return hsl_hex(rng.randrange(360), rng.choice((COLOR_L_DARK, COLOR_L_LIGHT)))
+
+
+def ensure_color(path: Path, rng: random.Random | None = None) -> str:
+    """The recipe's colour — generating and keeping one if it has none yet.
+
+    Every recipe has a colour; there is no "no colour". One that was saved before colours
+    existed gets its random one the first time it is looked at, and the choice is written
+    to the file so it is the same colour the next time rather than a new one per reload.
+    """
+    text = path.read_text(encoding="utf-8")
+    color = cached_color(text)
+    if color is None:
+        color = random_color(rng)
+        path.write_text(with_color(text, color), encoding="utf-8")
+    return color
+
+
+def set_color(path: Path, color: str | None) -> None:
+    """Give a cached recipe a colour, or clear it. Rewrites the one file."""
+    path.write_text(with_color(path.read_text(encoding="utf-8"), color), encoding="utf-8")
 
 
 def cached_name_from(text: str) -> str | None:
@@ -725,12 +795,12 @@ def save_cached(path: Path, p: BrewParams) -> Path:
     before = params_from_yaml(text)
     if before is not None and p.name == derived_name(replace(before, name=None)):
         p.name = None
-    path.write_text(to_yaml(p), encoding="utf-8")
+    path.write_text(with_color(to_yaml(p), cached_color(text)), encoding="utf-8")
     return path
 
 
 def fork_cached(p: BrewParams, root: str | Path | None = None,
-                name: str | None = None) -> Path:
+                name: str | None = None, color: str | None = None) -> Path:
     """Copy the current parameters into a **new** cache entry. → its path.
 
     The point of a fork is to stop editing what you had and start editing a copy, so
@@ -750,7 +820,55 @@ def fork_cached(p: BrewParams, root: str | Path | None = None,
         out = replace(p, name=f"{base} copy {n}")
         path = cache_dir(root) / f"{stem}-copy-{n}.yaml"
         n += 1
-    return write_cached(out, root, out=path)[0]
+    write_cached(out, root, out=path)
+    if color:
+        set_color(path, color)
+    return path
+
+
+def create_cached(p: BrewParams, name: str, root: str | Path | None = None) -> Path:
+    """Save ``p`` as a new cache entry called exactly ``name``. → its path.
+
+    This is "Save New Recipe" on the custom brew. Unlike :func:`fork_cached` there is no
+    "copy" in the name — nothing is being copied, the user is naming a new thing — and
+    unlike :func:`write_cached` it never hands back a file that is already there: a name
+    that collides gets a numbered filename. The recipe starts with a colour of its own.
+    """
+    name = name.strip()
+    if not name:
+        raise ParamError("a recipe needs a name")
+    if "\n" in name or len(name) > 80:
+        raise ParamError("that name is too long, or has a line break in it")
+    named = replace(p, name=None if name == derived_name(replace(p, name=None)) else name)
+    stem = cache_path(named, root).stem
+    path = cache_dir(root) / f"{stem}.yaml"
+    n = 2
+    while path.exists():
+        path = cache_dir(root) / f"{stem}-{n}.yaml"
+        n += 1
+    write_cached(named, root, out=path)
+    ensure_color(path)
+    return path
+
+
+SCRATCH_DIR = ".scratch"
+
+
+def write_scratch(p: BrewParams, root: str | Path | None = None) -> Path:
+    """Write ``p`` where the machine can be handed it, **without making it a recipe**.
+
+    ``xbloom brew`` takes a file, so a brew from the custom recipe has to be written
+    somewhere. That somewhere is not the recipe cache: brewing something once is not
+    saving it, and filing every one-off under today's date would fill the saved list with
+    brews nobody chose to keep. It is one file in a dot-directory the list never reads
+    (and :func:`resolve_cached` refuses to name), overwritten by the next one-off brew.
+    Saving it as a recipe is a separate, explicit step (:func:`create_cached`).
+    """
+    d = cache_dir(root) / SCRATCH_DIR
+    d.mkdir(parents=True, exist_ok=True)
+    path = d / "custom-brew.yaml"
+    path.write_text(to_yaml(p), encoding="utf-8")
+    return path
 
 
 def delete_cached(path: Path, root: str | Path | None = None) -> None:
@@ -773,11 +891,13 @@ class CachedBrew:
     name: str | None = None
     fingerprint: str = ""        # see fingerprint(): identity of what it brews
     brewed: bool = False         # has it ever started a brew? (age then counts from that)
+    color: str | None = None     # its #rrggbb label colour, if it has one
 
     def to_json(self) -> dict[str, Any]:
         return {"file": self.path.name, "stem": self.path.stem, "summary": self.summary,
                 "age": self.age, "readable": self.readable, "name": self.name,
-                "fingerprint": self.fingerprint, "brewed": self.brewed}
+                "fingerprint": self.fingerprint, "brewed": self.brewed,
+                "color": self.color}
 
 
 def describe(path: Path) -> tuple[str, bool]:
@@ -790,6 +910,27 @@ def describe(path: Path) -> tuple[str, bool]:
                 f"{len(r.pours)} pours  {grind}"), True
     except (RecipeError, OSError, ValueError) as exc:
         return f"unreadable — {exc}", False
+
+
+def brew_details(path: Path) -> dict[str, Any]:
+    """What a page shows about the recipe a run is brewing: its name, colour, one-line
+    summary and pours, read from the file *as it is* — the thing handed to the machine,
+    not a regeneration of it. A file that will not parse still gets its name and the
+    reason, with no pours."""
+    from .recipe import Recipe, RecipeError
+    summary, ok = describe(path)
+    text = path.read_text(encoding="utf-8") if path.is_file() else ""
+    out: dict[str, Any] = {"name": cached_name(path) or path.stem,
+                           "color": cached_color(text), "summary": summary, "pours": []}
+    if ok:
+        try:
+            r = Recipe.from_source(str(path))
+        except (RecipeError, OSError, ValueError):
+            return out
+        out["pours"] = [{"label": p.label or f"Pour {i}", "ml": p.ml, "temp_c": p.temp_c,
+                         "pause_s": p.pause_s, "pattern": p.pattern}
+                        for i, p in enumerate(r.pours, start=1)]
+    return out
 
 
 def age(path: Path, when: float | None = None, today: date | None = None) -> str:
@@ -824,11 +965,14 @@ def recent_brews(root: str | Path | None = None, limit: int = 5) -> list[CachedB
     out = []
     for f in files:
         summary, ok = describe(f)
+        if ok:
+            ensure_color(f)
         text = f.read_text(encoding="utf-8") if ok else ""
         out.append(CachedBrew(path=f, summary=summary, age=age(f, ledger.get(f.name)),
                               readable=ok, name=cached_name(f) if ok else None,
                               fingerprint=fingerprint(text) if ok else "",
-                              brewed=f.name in ledger))
+                              brewed=f.name in ledger,
+                              color=cached_color(text) if ok else None))
     return out
 
 
