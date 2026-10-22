@@ -116,7 +116,7 @@ PARAMS: tuple[Param, ...] = (
           choices=(2, 3)),
     Param("pause", "--pause", "pause", int, 20, "between main pours", " s",
           lo=0, hi=120, step=5),
-    Param("rpm", "--rpm", "rpm", int, 60, "holder speed on spiral pours; center uses 0",
+    Param("rpm", "--rpm", "pour rpm", int, 60, "pour head rotation on spiral pours; center uses 0",
           lo=0, hi=120, step=5),
     Param("flow", "--flow", "flow", float, 3.5, "3.0-3.5", " ml/s", lo=1.5, hi=5.0, step=0.1),
     Param("grind", "--grind", "grind", int, 0, "0 = pre-ground, else 1-80", lo=0, hi=80, step=1),

@@ -511,6 +511,38 @@ On the wire it maps to a sentinel, not `0`:
 The pour count must be **≥2** (at least a bloom and a first pour), and if you give
 an optional `ratio`, Σ(pour ml) must equal `dose_g * ratio`.
 
+#### TODO — what does `rpm` actually control? (needs hardware runs)
+
+`rpm` is documented above as the pour head's rotation speed, but that is **not
+established**, and some of the evidence points toward the *grinder* instead:
+
+- on the wire the value is carried **only on the first pour**; the machine zeroes it on
+  every later pour (verified against the vendor app's captures), and the cloud schema has
+  a single recipe-level `rpm` — both look like a per-brew setting, not a per-pour one;
+- yet the generator sends `0` on a `center` pour, and later `spiral` pours still spiral
+  with `rpm: 0`.
+
+Nothing in the repo settles it, so the web UI and terminal guide call it "Pour RPM" on
+the strength of the code comments alone. Two runs would. Change **only** `rpm` (60 vs 120),
+keep dose, grind, beans and everything else identical, and repeat each setting **at least
+three times** — grind time also varies with the beans, so single runs prove nothing.
+
+1. **Grinder on** (`grind: 1–80`). Time the silent grinding gap from the `0x22` *starting*
+   status to the first `0x10` *brewing* status in the telemetry (about 20 s on the firmware
+   we've seen), and note the grinder's sound. If a higher `rpm` shortens the gap or changes
+   the sound, `rpm` drives the grinder.
+2. **Grinder off** (`grind: 0`, the `0x44` pours opcode — pre-ground coffee in the dripper).
+   There is no grinding, so any difference between 60 and 120 here must come from the pour
+   head: watch the spiral pours (rotation speed, how long a loop takes). If nothing changes
+   in *either* run, `rpm` may be a no-op for this firmware.
+
+Record the firmware version and the exact recipes with the results, and update this
+section and the `rpm` row above once it is known. Related, not yet tried: list every key of
+a few real cloud recipes (`XBloomCloud.fetch_public`) for a grinder-speed field the library
+doesn't map, and capture the vendor app's recipe editor to see whether it exposes one.
+Don't write into the unexplained constant bytes of `0xa6` / `0xa8` to find out — observe
+first.
+
 ---
 
 ## Reverse-engineered protocol
