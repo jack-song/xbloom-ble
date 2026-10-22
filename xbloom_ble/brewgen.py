@@ -704,10 +704,17 @@ def describe(path: Path) -> tuple[str, bool]:
         return f"unreadable — {exc}", False
 
 
-def age(path: Path, when: float | None = None) -> str:
-    """Days since ``when`` (an epoch), or since the file was last written."""
+def age(path: Path, when: float | None = None, today: date | None = None) -> str:
+    """How long ago, by **calendar day**: "today", "yesterday", then "Nd ago".
+
+    ``when`` is an epoch (a brew's time), or None for the file's last write. It is the
+    date that counts, not the elapsed hours: something done at 23:50 is "yesterday" at
+    00:10, and something done at 00:10 is still "today" at 23:50. ``today`` exists so that
+    can be tested without waiting for midnight.
+    """
     stamp = when if when is not None else path.stat().st_mtime
-    days = (datetime.now() - datetime.fromtimestamp(stamp)).days
+    days = ((today or date.today()) - datetime.fromtimestamp(stamp).date()).days
+    days = max(0, days)                       # a clock that ran ahead is still "today"
     return "today" if days == 0 else "yesterday" if days == 1 else f"{days}d ago"
 
 

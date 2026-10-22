@@ -319,3 +319,22 @@ def test_autosave_does_not_overwrite_a_name_somebody_typed(tmp_path):
     path, _ = brewgen.write_cached(brewgen.BrewParams(dose=10.0, name="Morning"), tmp_path)
     brewgen.save_cached(path, brewgen.BrewParams(dose=12.0))
     assert brewgen.cached_name(path) == "Morning"
+
+
+# --- "how long ago" is by calendar day, not by 24-hour spans ------------------
+def test_age_counts_calendar_days_not_hours(tmp_path):
+    from datetime import date, datetime
+    f = tmp_path / "x.yaml"
+    f.write_text("name: x\n", encoding="utf-8")
+    at = lambda y, m, d, hh, mm: datetime(y, m, d, hh, mm).timestamp()   # noqa: E731
+    today = date(2026, 10, 12)
+    # 23:50 yesterday is "yesterday" at 00:10 today — 20 minutes, but a different day
+    assert brewgen.age(f, at(2026, 10, 11, 23, 50), today) == "yesterday"
+    # 00:10 today is still "today" late in the evening — 23+ hours, same day
+    assert brewgen.age(f, at(2026, 10, 12, 0, 10), today) == "today"
+    # just under 48 hours, but two calendar days back
+    assert brewgen.age(f, at(2026, 10, 10, 23, 59), today) == "2d ago"
+    # a full week, whatever the hour
+    assert brewgen.age(f, at(2026, 10, 5, 12, 0), today) == "7d ago"
+    # a clock running ahead is never "-1d ago"
+    assert brewgen.age(f, at(2026, 10, 13, 9, 0), today) == "today"
