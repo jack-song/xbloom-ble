@@ -449,11 +449,13 @@ def test_create_refuses_an_invalid_recipe_or_a_missing_name(server):
 def test_opening_a_recipe_saved_under_the_old_rules_migrates_it(server):
     """It is carried forward when opened: the page gets parameters for it and the file
     is rewritten to match, so what is shown and what brews are the same thing."""
-    path, _ = brewgen.write_cached(brewgen.BrewParams(), server.root)
-    old = path.read_text(encoding="utf-8").replace("temp_c: 80", "temp_c: 91") \
+    # Off the default temp: a bloom_temp-less params line now falls back to bloom = temp,
+    # so the old file must differ from that to be "old" at all.
+    path, _ = brewgen.write_cached(brewgen.BrewParams(bloom_temp=80, temp=93), server.root)
+    old = path.read_text(encoding="utf-8").replace("temp_c: 80", "temp_c: 93") \
         .replace(" bloom_temp=80", "")
     path.write_text(old, encoding="utf-8")
     assert brewgen.params_from_yaml(old) is None
     got = get(server, "/api/recipe?file=" + path.name)[1]
-    assert got["editable"] is True and got["params"]["bloom_temp"] == 91
+    assert got["editable"] is True and got["params"]["bloom_temp"] == 93
     assert brewgen.params_from_yaml(path.read_text(encoding="utf-8")) is not None

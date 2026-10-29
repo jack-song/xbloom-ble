@@ -75,8 +75,8 @@ def test_plan_of_defaults_is_valid_and_specific():
     assert p.valid and p.error is None
     assert (p.bloom_ml, p.main_ml, p.total_ml) == (29, 47, 170)
     assert [x["ml"] for x in p.pours] == [29, 47, 47, 47]
-    # the bloom has its own temperature; the main pours step down 1 C, the last 2 C
-    assert [x["temp_c"] for x in p.pours] == [80, 91, 90, 88]
+    # the bloom defaults to temp; the main pours step down 1 C, the last 2 C
+    assert [x["temp_c"] for x in p.pours] == [91, 91, 90, 88]
     assert p.oversize_ml is None
 
 
@@ -85,8 +85,8 @@ def test_temperatures_for_every_pour_count():
     one before it — so two main pours are simply temp and temp - 2."""
     got = {n: [x["temp_c"] for x in brewgen.plan(BrewParams(pours=n)).pours]
            for n in (2, 3, 4, 5)}
-    assert got == {2: [80, 91, 89], 3: [80, 91, 90, 88],
-                   4: [80, 91, 90, 89, 87], 5: [80, 91, 90, 89, 88, 86]}
+    assert got == {2: [91, 91, 89], 3: [91, 91, 90, 88],
+                   4: [91, 91, 90, 89, 87], 5: [91, 91, 90, 89, 88, 86]}
 
 
 def test_pauses_grow_four_seconds_per_main_pour():
@@ -124,7 +124,7 @@ def test_up_to_five_main_pours_plan_and_validate():
 def test_bloom_temp_is_its_own_parameter():
     p = brewgen.plan(BrewParams(bloom_temp=60, temp=93))
     assert [x["temp_c"] for x in p.pours][:2] == [60, 93]
-    assert BrewParams.defaults().bloom_temp == 80
+    assert BrewParams.defaults().bloom_temp == BrewParams.defaults().temp
     cold = brewgen.plan(BrewParams(bloom_temp=30))              # below the machine's 40 C
     assert not cold.valid and "40" in cold.error
 
@@ -132,7 +132,7 @@ def test_bloom_temp_is_its_own_parameter():
 def _old_rule_recipe(name=None):
     """What the generator wrote before the bloom had its own temperature: the bloom at
     ``temp`` and every pour 1 C cooler than the one before, with no bloom_temp key."""
-    text = brewgen.to_yaml(BrewParams(name=name))
+    text = brewgen.to_yaml(BrewParams(name=name, bloom_temp=80))
     text = text.replace("temp_c: 80", "temp_c: 91").replace("temp_c: 91, pattern: center",
                                                           "temp_c: 90, pattern: center")
     text = text.replace("temp_c: 88", "temp_c: 89")

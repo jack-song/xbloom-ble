@@ -110,15 +110,19 @@ class Param:
         return value
 
 
+# The bloom starts at the main pours' temperature unless set apart, so one constant feeds
+# both defaults (here and in BrewParams) and they cannot drift.
+TEMP_DEFAULT = 91
+
 PARAMS: tuple[Param, ...] = (
     Param("dose", "--dose", "dose", float, 10.0, "1-18 g", " g", lo=1, hi=18, step=0.5),
     Param("ratio", "--ratio", "ratio", float, 17.0, "water:coffee", lo=10, hi=22, step=0.5),
-    Param("temp", "--temp", "temp", int, 91, "first main pour; -1 C each after, -2 on the last",
-          " C", lo=60, hi=99, step=1),
+    Param("temp", "--temp", "temp", int, TEMP_DEFAULT,
+          "first main pour; -1 C each after, -2 on the last", " C", lo=60, hi=99, step=1),
     Param("bloom_time", "--bloom-time", "bloom time", int, 50, "pause after the bloom", " s",
           lo=0, hi=180, step=5),
-    Param("bloom_temp", "--bloom-temp", "bloom temp", int, 80, "water for the bloom", " C",
-          lo=40, hi=95, step=1),
+    Param("bloom_temp", "--bloom-temp", "bloom temp", int, TEMP_DEFAULT, "water for the bloom",
+          " C", lo=40, hi=95, step=1),
     Param("pattern", "--pattern", "pattern", str, "spiral",
           "dominant: bloom + all main pours but the first", choices=("spiral", "center")),
     Param("pours", "--pours", "main pours", int, 3, "2-5 (plus the bloom)",
@@ -146,9 +150,9 @@ class BrewParams:
 
     dose: float = 10.0
     ratio: float = 17.0
-    temp: int = 91
+    temp: int = TEMP_DEFAULT
     bloom_time: int = 50
-    bloom_temp: int = 80
+    bloom_temp: int = TEMP_DEFAULT
     pattern: str = "spiral"
     pours: int = 3
     pause: int = 15
