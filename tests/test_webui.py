@@ -459,3 +459,50 @@ def test_opening_a_recipe_saved_under_the_old_rules_migrates_it(server):
     got = get(server, "/api/recipe?file=" + path.name)[1]
     assert got["editable"] is True and got["params"]["bloom_temp"] == 93
     assert brewgen.params_from_yaml(path.read_text(encoding="utf-8")) is not None
+
+
+def test_notes_save_and_read_back_without_touching_the_recipe(server):
+    path, _ = brewgen.write_cached(brewgen.BrewParams(dose=15.0), server.root)
+    get(server, "/api/recipe?file=" + path.name)          # gives it a colour first
+    before = path.read_text(encoding="utf-8")
+    assert get(server, "/api/recipe?file=" + path.name)[1]["notes"] == ""
+    status, data = post(server, "/api/notes", {"file": path.name,
+                                               "notes": "a touch sour\ngrind finer"})
+    assert status == 200 and data["notes"] == "a touch sour\ngrind finer"
+    assert get(server, "/api/recipe?file=" + path.name)[1]["notes"] == "a touch sour\ngrind finer"
+    assert path.read_text(encoding="utf-8") == before      # the recipe file is untouched
+    assert server.launched == []
+
+
+def test_empty_notes_are_removed(server):
+    path, _ = brewgen.write_cached(brewgen.BrewParams(dose=15.0), server.root)
+    post(server, "/api/notes", {"file": path.name, "notes": "x"})
+    post(server, "/api/notes", {"file": path.name, "notes": "  \n"})
+    assert brewgen._notes(server.root) == {}
+
+
+def test_notes_follow_a_rename_and_go_with_a_delete(server):
+    path, _ = brewgen.write_cached(brewgen.BrewParams(dose=15.0), server.root)
+    post(server, "/api/notes", {"file": path.name, "notes": "keep me"})
+    _, renamed = post(server, "/api/rename", {"file": path.name, "name": "Morning"})
+    assert get(server, "/api/recipe?file=" + renamed["file"])[1]["notes"] == "keep me"
+    post(server, "/api/delete", {"file": renamed["file"]})
+    assert brewgen._notes(server.root) == {}
+
+
+def test_a_fork_carries_the_notes_of_the_recipe_it_came_from(server):
+    path, _ = brewgen.write_cached(brewgen.BrewParams(dose=15.0), server.root)
+    post(server, "/api/notes", {"file": path.name, "notes": "base notes"})
+    _, fork = post(server, "/api/fork", {"params": {"dose": 15}, "file": path.name})
+    assert get(server, "/api/recipe?file=" + fork["file"])[1]["notes"] == "base notes"
+    assert get(server, "/api/recipe?file=" + path.name)[1]["notes"] == "base notes"
+
+
+def test_notes_reject_bad_input_and_need_the_local_header(server):
+    path, _ = brewgen.write_cached(brewgen.BrewParams(dose=15.0), server.root)
+    assert post(server, "/api/notes", {"file": path.name, "notes": 5})[0] == 400
+    too_long = "x" * (brewgen.MAX_NOTES + 1)
+    assert post(server, "/api/notes", {"file": path.name, "notes": too_long})[0] == 400
+    assert post(server, "/api/notes", {"file": "../x.yaml", "notes": "hi"})[0] == 400
+    assert post(server, "/api/notes", {"file": path.name, "notes": "hi"}, local=False)[0] == 403
+    assert brewgen._notes(server.root) == {}

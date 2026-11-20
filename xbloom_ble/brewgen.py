@@ -709,14 +709,68 @@ def mark_brewed(path: Path, root: str | Path | None = None, when: float | None =
 
 
 def _forget_or_move(root: str | Path | None, old: str, new: str | None) -> None:
-    """Keep the ledger true across a rename (``new`` set) or a delete (``new`` None)."""
+    """Keep the ledgers true across a rename (``new`` set) or a delete (``new`` None)."""
     ledger = _ledger(root)
-    if old not in ledger:
+    if old in ledger:
+        when = ledger.pop(old)
+        if new:
+            ledger[new] = when
+        _save_ledger(root, ledger)
+    notes = _notes(root)
+    if old in notes:
+        text = notes.pop(old)
+        if new:
+            notes[new] = text
+        _save_notes(root, notes)
+
+
+NOTES_LEDGER = ".notes.json"
+MAX_NOTES = 10_000          # characters; a tasting log, not a novel (and well under MAX_BODY)
+
+
+def _notes(root: str | Path | None) -> dict[str, str]:
+    """``{filename: free text}`` — the user's notes on each cached recipe.
+
+    Kept beside the recipes, not in them, for the same reason as :func:`_ledger`: a
+    recipe file is the record of what a brew was, and its fingerprint must not change
+    because somebody wrote "a touch sour" under it. Notes autosave as you type, so they
+    would otherwise rewrite the recipe on every pause.
+    """
+    try:
+        data = json.loads((cache_dir(root) / NOTES_LEDGER).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {k: str(v) for k, v in data.items()} if isinstance(data, dict) else {}
+
+
+def _save_notes(root: str | Path | None, notes: dict[str, str]) -> None:
+    (cache_dir(root) / NOTES_LEDGER).write_text(json.dumps(notes, indent=1), encoding="utf-8")
+
+
+def cached_notes(path: Path, root: str | Path | None = None) -> str:
+    """The notes on one cached recipe, or ``""``."""
+    return _notes(root).get(path.name, "")
+
+
+def set_notes(path: Path, text: str, root: str | Path | None = None) -> None:
+    """Replace the notes on one cached recipe. Empty (or whitespace) text removes them."""
+    if len(text) > MAX_NOTES:
+        raise ParamError(f"notes are limited to {MAX_NOTES:,} characters")
+    notes = _notes(root)
+    if text.strip():
+        notes[path.name] = text
+    elif path.name in notes:
+        del notes[path.name]
+    else:
         return
-    when = ledger.pop(old)
-    if new:
-        ledger[new] = when
-    _save_ledger(root, ledger)
+    _save_notes(root, notes)
+
+
+def copy_notes(root: str | Path | None, src: Path, dst: Path) -> None:
+    """Give a copy of a recipe (a fork, a renamed brew) the original's notes."""
+    text = cached_notes(src, root)
+    if text and src != dst:
+        set_notes(dst, text, root)
 
 
 def cached_name(path: Path) -> str | None:
@@ -739,6 +793,7 @@ def renamed_copy(path: Path, new_name: str, root: str | Path | None = None) -> P
     out = cache_dir(root) / f"{date.today().isoformat()}-{name_slug(new_name)}.yaml"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(text, encoding="utf-8")
+    copy_notes(root, path, out)
     return out
 
 

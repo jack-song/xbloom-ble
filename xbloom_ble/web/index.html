@@ -203,6 +203,17 @@
   /* Always the bottom-right corner of the panel, so it never moves. */
   /* Reset and Save New Recipe sit just above BREW, in the same voice at a smaller size, and
      the pair is pinned to the bottom of the panel together. */
+  /* Notes on the staged recipe: free text, saved as you type. Only a saved recipe has
+     somewhere to keep them, so the custom brew shows none. */
+  #notes-box[hidden] { display: none; }
+  #notes-box { margin: 14px 0; display: flex; flex-direction: column; gap: 4px; }
+  #notes-box .head { display: flex; justify-content: space-between; font-size: 13px;
+                     color: var(--dim); }
+  #notes { font: 14px/1.45 var(--sans); color: inherit; background: var(--wash);
+           border: 0; border-radius: var(--r); padding: 8px 10px; resize: vertical;
+           min-height: 5.5em; width: 100%; box-sizing: border-box; }
+  #notes:focus { outline: 1px solid currentColor; }
+  #notes::placeholder { color: var(--dim); }
   .bottom { margin-top: auto; display: flex; flex-direction: column; gap: 10px; }
   .custom-actions { display: flex; flex-direction: column; gap: 10px; }
   .custom-actions[hidden] { display: none; }
@@ -371,6 +382,13 @@
         </div>
         <dl class="summary" id="summary"></dl>
         <div id="banners"></div>
+        <!-- free-text notes on the staged recipe, autosaved -->
+        <div id="notes-box" hidden>
+          <label class="head" for="notes"><span>Notes</span>
+            <span id="notes-state"></span></label>
+          <textarea id="notes" rows="4" maxlength="10000"
+                    placeholder="How did it taste? What would you change?"></textarea>
+        </div>
         <div class="bottom">
           <!-- only while the custom recipe is staged -->
           <div class="custom-actions" id="custom-actions" hidden>
@@ -764,6 +782,7 @@ function isDirty() {
  *  discard. Passing null stages the custom brew at the defaults. Leaving a recipe with
  *  unsaved edits asks first, unless `force` (the edits went somewhere, e.g. a fork). */
 async function stage(file, force) {
+  await flushNotes();
   if (!force && isDirty()) {
     if (file === staged.file) return;     // re-clicking it must not reload over the edits
     if (!confirm(`Discard your unsaved changes to \u201c${staged.name}\u201d?`)) return;
@@ -786,6 +805,7 @@ async function stage(file, force) {
     // longer describe, and editing them would rewrite it.
     staged = {file: d.file, name: d.name, color: d.color, readonly: true, summary: d.summary};
     saveState = '';
+    showNotes(d.notes);
     params = {...config.defaults};   // the fields are dimmed and inert; not another brew's
     await refresh();            // keeps the fields on screen; renderPlan locks them
     loadRecent();
@@ -795,6 +815,7 @@ async function stage(file, force) {
   for (const k of Object.keys(config.defaults)) params[k] = d.params[k];
   staged = {file: d.file, name: d.name, color: d.color, saved: {...params}};
   saveState = '';
+  showNotes(d.notes);
   await refresh();
   loadRecent();
 }
@@ -842,6 +863,7 @@ function renderStaged() {
   if (hit) $('custom-match').textContent = `Matches: ${hit.name || hit.stem}`;
   // The custom recipe's title is fixed text: no input, no save status, no actions here.
   $('staged-title').hidden = !!staged;
+  $('notes-box').hidden = !staged;
   if (staged && document.activeElement !== name) name.value = staged.name;
   paint($('brewside'), staged && staged.color);
   const dirty = isDirty();
@@ -883,7 +905,9 @@ function renderStaged() {
 
 async function doFork() {
   try {
-    const d = await POST('/api/fork', {params, name: staged.name, color: staged.color});
+    await flushNotes();
+    const d = await POST('/api/fork', {params, name: staged.name, color: staged.color,
+                                       file: staged.file});
     await loadRecent();
     await stage(d.file, true);          // the edits went into the fork
   } catch (e) { alert(e.message); }
@@ -891,6 +915,7 @@ async function doFork() {
 
 async function doDelete(file, label) {
   if (!confirm(`Delete \u201c${label}\u201d? The file goes for good.`)) return;
+  if (staged && staged.file === file) clearTimeout(notesTimer);
   try {
     await POST('/api/delete', {file});
     if (staged && staged.file === file) { staged = null; saveState = ''; }
@@ -1105,11 +1130,60 @@ $('staged-name').addEventListener('blur', async () => {
   const name = $('staged-name').value.trim();
   if (!staged || !name || name === staged.name) { renderStaged(); return; }
   try {
+    await flushNotes();               // notes are filed under the filename a rename moves
     const d = await POST('/api/rename', {file: staged.file, name});
     staged = {...staged, file: d.file, name: d.name};
     await loadRecent();
   } catch (e) { alert(e.message); }
   renderStaged();
+});
+
+// --- notes on the staged recipe ---------------------------------------------
+// Saved as you type: a short pause after the last keystroke, or leaving the box, writes
+// them. They are kept beside the recipe, not in it, so this never touches the recipe file.
+const NOTES_DELAY = 700;
+let notesTimer = null;
+let notesSaved = '';          // the text as the server last confirmed it
+
+function showNotes(text) {
+  clearTimeout(notesTimer);
+  notesSaved = text || '';
+  $('notes').value = notesSaved;
+  $('notes-state').textContent = '';
+}
+
+/** Write the notes now if they differ from what is saved. Safe to call any time. */
+async function flushNotes() {
+  clearTimeout(notesTimer);
+  const text = $('notes').value;
+  if (!staged || text === notesSaved) return;
+  const file = staged.file;
+  $('notes-state').textContent = 'saving\u2026';
+  try {
+    await POST('/api/notes', {file, notes: text});
+    if (staged && staged.file === file) {
+      notesSaved = text;
+      $('notes-state').textContent = $('notes').value === text ? 'saved' : '';
+    }
+  } catch (e) {
+    $('notes-state').textContent = 'not saved \u2014 ' + e.message;
+  }
+}
+
+$('notes').addEventListener('input', () => {
+  clearTimeout(notesTimer);
+  $('notes-state').textContent = '';
+  notesTimer = setTimeout(flushNotes, NOTES_DELAY);
+});
+$('notes').addEventListener('blur', flushNotes);
+// Closing the tab mid-pause: a keepalive request outlives the page.
+window.addEventListener('pagehide', () => {
+  if (!staged || $('notes').value === notesSaved) return;
+  fetch('/api/notes', {
+    method: 'POST', keepalive: true,
+    headers: {'Content-Type': 'application/json', 'X-XBloom-Local': '1'},
+    body: JSON.stringify({file: staged.file, notes: $('notes').value}),
+  });
 });
 
 // --- boot -----------------------------------------------------------------

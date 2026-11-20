@@ -16,8 +16,8 @@ Safety, mirroring CLAUDE.md's invariant:
 * ``POST /api/start`` is the only route that starts one. It requires an explicit
   ``acknowledge: true`` plus a name for the brew — the browser sends those only from the
   confirmation dialog, which is the web equivalent of the terminal guide's TTY gate.
-* ``POST /api/rename``, ``/api/save``, ``/api/fork``, ``/api/create``, ``/api/color`` and
-  ``/api/delete`` only touch
+* ``POST /api/rename``, ``/api/save``, ``/api/fork``, ``/api/create``, ``/api/color``,
+  ``/api/notes`` and ``/api/delete`` only touch
   files in the recipe cache. None of them spawns anything, and none can reach the
   machine. The page saves a staged recipe through ``/api/save`` when you press Save,
   and these routes are what make that safe to do at any time.
@@ -264,6 +264,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self._do_delete(body)
             elif route.path == "/api/color":
                 self._do_color(body)
+            elif route.path == "/api/notes":
+                self._do_notes(body)
             elif route.path == "/api/create":
                 self._do_create(body)
             elif route.path == "/api/run/stop":
@@ -309,7 +311,8 @@ class _Handler(BaseHTTPRequestHandler):
                 "editable": params is not None and ok,
                 "readable": ok, "summary": summary,
                 "fingerprint": brewgen.fingerprint(text),
-                "color": brewgen.cached_color(text)}
+                "color": brewgen.cached_color(text),
+                "notes": brewgen.cached_notes(path, srv.root)}
 
     def _staged_json(self, path: Path) -> dict[str, Any]:
         return {"file": path.name, "stem": path.stem,
@@ -335,6 +338,9 @@ class _Handler(BaseHTTPRequestHandler):
         name = str(body.get("name") or "").strip() or None
         color = str(body.get("color") or "") or None
         out = brewgen.fork_cached(params, srv.root, name, color)
+        if body.get("file"):            # the recipe forked from: its notes come along
+            src = brewgen.resolve_cached(str(body["file"]), srv.root)
+            brewgen.copy_notes(srv.root, src, out)
         self._json(self._staged_json(out))
 
     def _do_create(self, body: dict[str, Any]) -> None:
@@ -357,6 +363,16 @@ class _Handler(BaseHTTPRequestHandler):
             raise ParamError("a brew always has a colour — pick one")
         brewgen.set_color(path, color)
         self._json(self._staged_json(path))
+
+    def _do_notes(self, body: dict[str, Any]) -> None:
+        """Replace a cached recipe's free-text notes (the page autosaves them)."""
+        srv = self.server                                      # type: ignore[assignment]
+        path = brewgen.resolve_cached(str(body.get("file") or ""), srv.root)
+        notes = body.get("notes")
+        if not isinstance(notes, str):
+            raise ParamError("notes must be text")
+        brewgen.set_notes(path, notes, srv.root)
+        self._json({"file": path.name, "notes": brewgen.cached_notes(path, srv.root)})
 
     def _do_delete(self, body: dict[str, Any]) -> None:
         """Delete one cached recipe."""
