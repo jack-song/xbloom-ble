@@ -167,6 +167,9 @@ async def _cmd_brew(args) -> int:
                     print(f"\n⚠️  Machine refused: no {what}. Aborting (0x47).")
                     await client.cancel_brew()
                     return 0
+                if brewing.state_name == "awaiting_confirm":
+                    print("\n👉 The grinder moved to the new grind size and the machine is "
+                          "waiting — press to confirm ON THE MACHINE to start.")
             else:
                 print(LOAD_BANNER)
             print()

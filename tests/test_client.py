@@ -210,6 +210,48 @@ def test_start_refuses_to_nudge_once_machine_has_left_pre_brew(caplog):
     assert any("NOT sending 0x46" in r.getMessage() for r in caplog.records)
 
 
+GRIND_STEP = "580207399e10000000c15900000060eb"  # 0x39 grinder step
+GRIND_DONE = "5802074e9e10000000c16400000031d2"  # 0x4e grind reached
+
+
+def test_start_waits_out_grind_adjust_then_auto_proceeds():
+    """2026-11-20: commit -> 0x39 steps -> 0x4e -> starting, on its own. The steps must
+    keep the window open past `settle` and no 0x46 may be sent."""
+    fake = FakeBleak()
+    c = _client(fake)
+    orig = c._write_cmd
+
+    async def grind_then_start(frame, what):
+        await orig(frame, what)
+        if frame[3] == 0x42:
+            async def feed():
+                for _ in range(6):            # 6 x 0.03 s = longer than settle
+                    await asyncio.sleep(0.03)
+                    fake._push(GRIND_STEP)
+                fake._push(GRIND_DONE)
+                await asyncio.sleep(0.03)
+                fake._push(STARTING)
+            asyncio.get_event_loop().create_task(feed())
+    c._write_cmd = grind_then_start
+    fake.script[0x42] = [ACK_42]
+    ev = run(c.start(settle=0.1))
+    assert ev.state_name == "starting"
+    assert 0x46 not in _cmds(fake)
+
+
+def test_start_never_nudges_after_grinder_moved(caplog):
+    """2026-11-22: after a grind-size change the machine waits for a press on the
+    machine; a 0x46 there reset it to armed. start() must report awaiting_confirm."""
+    fake = FakeBleak()
+    fake.script[0x42] = [ACK_42, GRIND_STEP, GRIND_STEP, GRIND_DONE]
+    c = _client(fake)
+    with caplog.at_level("INFO", logger="xbloom_ble"):
+        ev = run(c.start(settle=0.05))
+    assert 0x46 not in _cmds(fake)
+    assert ev.state_name == "awaiting_confirm"
+    assert any("NOT sending 0x46" in r.getMessage() for r in caplog.records)
+
+
 def test_start_returns_refusal_state():
     fake = FakeBleak()
     fake.script[0x42] = [NO_WATER]

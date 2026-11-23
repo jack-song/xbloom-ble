@@ -622,6 +622,16 @@ single-byte frames (each payload `01`, byte-exact from the app's capture):
 7. **`0x46`** (seq `0x9e`) — **start**: begins brewing (`0x3b`).
 8. **`0x47`** (seq `0x9e`) — **cancel**: aborts a committed/running brew.
 
+**Grind-size change after commit (observed Nov 2026).** If the recipe's grind differs from
+where the grinder sits, commit is followed by a run of **`0x39`** frames (one per motor
+step, ~5/s; the payload counts the position) and then **`0x4e`** (target reached),
+sometimes **`0x3a`**. A large change runs well past 8 s. Firmware then either proceeds to
+`0x22` (starting) on its own, or waits in awaiting-confirm for a **press on the machine** —
+and a `0x46` sent there knocks it back to `0x1f` (armed) instead of starting it. So
+`start()` waits on the machine's activity, not a fixed timer: every grind-step frame
+restarts its watch window, and once the grinder has moved it never sends `0x46`; it
+returns `awaiting_confirm` and the CLI/TUI tell you to confirm on the machine.
+
 `build_load_frames()` never includes the commit/start opcodes — loading only arms the
 machine. Starting/cancelling is done through the dedicated `build_commit()` /
 `build_start()` / `build_cancel()` builders, emitted only by an explicit
@@ -746,8 +756,8 @@ above):
   - **`0x57`** — a **status** frame; the byte right after `0xc1` is the machine
     *state* (table below).
   - **`0x15` / `0x4b`** — idle **heartbeats** (ignored).
-  - `0x49` carries a machine-info dump (serial + firmware string); `0x39` etc.
-    carry live brew progress (best-effort, not needed for load-only).
+  - `0x49` carries a machine-info dump (serial + firmware string); `0x39` / `0x4e`
+    are grinder-position steps / target reached after a grind-size change (see above).
 
 **State byte** (inside a `0x57` frame, right after `0xc1`):
 

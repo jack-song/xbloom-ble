@@ -14,8 +14,9 @@ the vendor app's HCI capture — 4658 notifications, all this format)::
   - ``0x57`` — a **status** frame; the byte right after ``0xc1`` is the machine
     *state* (see table).
   - ``0x15`` / ``0x4b`` — idle **heartbeats** (ignored).
-  - ``0x49`` — machine-info dump (serial + firmware string), ``0x39`` etc. carry
-    live brew progress (best-effort, not needed for load-only).
+  - ``0x49`` — machine-info dump (serial + firmware string); ``0x39`` / ``0x4e`` are
+    grinder-position steps / target reached after a grind-size change (see
+    ``client.GRIND_ADJUST_FRAMES``).
 
 State byte (inside a ``0x57`` frame, right after ``0xc1``)
 ---------------------------------------------------------

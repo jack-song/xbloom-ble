@@ -73,6 +73,15 @@ STATE_SLOTS_SAVED = 0x25
 # (idle) in PRO mode. NOTE 0x41 is also what telemetry maps to "complete", so this code
 # only means "AUTO" when seen *before* anything has been staged. See observed_mode().
 STATE_AUTO_MODE = 0x41
+# Grind-size adjustment frames (observed Nov 2026). When a recipe's grind differs from
+# the grinder's current position, commit is followed by a run of 0x39 frames (one per
+# motor step, ~5/s, the payload counting the position), then 0x4e (target reached) and
+# sometimes 0x3a. A large change runs well past 8 s. While these arrive the machine is
+# busy, not stalled; and once it has moved the grinder it asks for a press ON THE
+# MACHINE — a 0x46 nudge then knocks it back to armed (0x1f) instead of starting it.
+GRIND_ADJUST_FRAMES = frozenset({0x39, 0x4E, 0x3A})
+# Hard cap on how long start() follows grind-adjust activity before deciding.
+GRIND_ADJUST_MAX_WAIT = 90.0
 
 
 class XBloomError(RuntimeError):
@@ -391,12 +400,21 @@ class XBloomClient:
     # Starting / cancelling a brew  (explicit — dispenses hot water)
     # ------------------------------------------------------------------
     async def _drain_for_any(self, states: set[int], timeout: float,
-                             on_event: Callable[[StatusEvent], None] | None = None
+                             on_event: Callable[[StatusEvent], None] | None = None,
+                             *, extend_on: frozenset[int] = frozenset(),
+                             max_wait: float | None = None,
                              ) -> StatusEvent | None:
         """Return the first status event whose state is in ``states``, or ``None`` on
-        timeout. Skips heartbeats; consumes intervening frames."""
+        timeout. Skips heartbeats; consumes intervening frames.
+
+        ``extend_on`` is a set of frame-type bytes that count as "the machine is busy":
+        each one restarts the ``timeout`` window (bounded by ``max_wait`` overall), so the
+        wait is measured from the machine's last sign of activity, not from when we
+        started waiting."""
         loop = asyncio.get_event_loop()
-        deadline = loop.time() + timeout
+        started = loop.time()
+        deadline = started + timeout
+        cap = started + max_wait if max_wait is not None else None
         while True:
             remaining = deadline - loop.time()
             if remaining <= 0:
@@ -412,6 +430,10 @@ class XBloomClient:
             log.debug("status: %s", event.state_name)
             if event.state in states:
                 return event
+            if extend_on and len(event.raw) > 3 and event.raw[3] in extend_on:
+                deadline = max(deadline, loop.time() + timeout)
+                if cap is not None:
+                    deadline = min(deadline, cap)
 
     async def start(self, *, settle: float = 8.0,
                     on_event: Callable[[StatusEvent], None] | None = None) -> StatusEvent:
@@ -425,8 +447,15 @@ class XBloomClient:
         * If the machine reaches **grinding (0x22)** or **brewing (0x3b)** on its own,
           the brew is underway — we do **not** send ``0x46`` (sending it into a running
           brew aborts it back to armed — verified on hardware).
-        * Only if it **stalls in awaiting-confirm** do we send the ``0x46`` start frame
-          to nudge it (this is what the vendor app's capture needed).
+        * If it is **moving the grinder** to a new grind size (``0x39`` step frames,
+          then ``0x4e``), the watch window restarts on every such frame — a big change
+          takes well over ``settle`` — and once the grinder has moved we **never** send
+          ``0x46``: the machine then wants a press on the machine itself, and a ``0x46``
+          knocks it back to armed (2026-11-22, both runs). We return the
+          ``awaiting_confirm`` state so the caller can tell the person to press.
+        * Only if it **stalls in awaiting-confirm** with no grinder activity do we send
+          the ``0x46`` start frame to nudge it (this is what the vendor app's capture
+          needed).
 
         Returns best-effort once brewing/grinding is seen; never raises just because a
         state wasn't observed (the caller streams telemetry for the live state).
@@ -452,7 +481,20 @@ class XBloomClient:
             # "acted" case we must NOT send 0x46 — sending it into a running brew aborts
             # it, and it's pointless on a refusal. Only nudge with 0x46 if it stalls.
             acted = {STATE_STARTING, STATE_NO_WATER, STATE_NO_BEANS} | BREWING_STATES
-            ev = await self._drain_for_any(acted, settle, on_event)
+            grind_moved = False
+
+            def _watch(event: StatusEvent) -> None:
+                nonlocal grind_moved
+                if len(event.raw) > 3 and event.raw[3] in GRIND_ADJUST_FRAMES:
+                    if not grind_moved:
+                        log.info("grinder is moving to the new grind size — waiting on it")
+                    grind_moved = True
+                if on_event is not None:
+                    on_event(event)
+
+            ev = await self._drain_for_any(acted, settle, _watch,
+                                           extend_on=GRIND_ADJUST_FRAMES,
+                                           max_wait=GRIND_ADJUST_MAX_WAIT)
             if ev is not None:
                 log.info("machine acted on commit (%s) — not sending 0x46", ev.state_name)
                 return ev
@@ -481,6 +523,13 @@ class XBloomClient:
                     last.state_name, last.state,
                 )
                 return last
+            if grind_moved:
+                # After a grind-size change the machine waits for a physical press; a
+                # 0x46 here resets it to armed (observed twice on 2026-11-22).
+                log.info("grinder moved and the machine is waiting — NOT sending 0x46; "
+                         "confirm on the machine to start")
+                return StatusEvent(state=STATE_AWAITING_CONFIRM,
+                                   state_name="awaiting_confirm", raw=b"")
             # It stalled in awaiting-confirm — nudge it with the start frame.
             log.info("machine waiting in confirm — → 0x46 start")
             await self._write_cmd(build_start(), "0x46 start")

@@ -855,8 +855,15 @@ class XBloomApp(App):
                 if started is not None and started.state_name in ("no_beans", "no_water"):
                     await self._abort_supply(started.state_name, head)
                     return
-                self._brew_status(f"{head}\n[cyan]● brewing…[/]")
-                self._log("brew started ▶", "cyan")
+                if started is not None and started.state_name == "awaiting_confirm":
+                    # The grinder moved to a new grind size; the machine now wants a
+                    # press on the machine itself (a remote 0x46 would reset it).
+                    self._brew_status(
+                        f"{head}\n[yellow]● grind size set — confirm on the machine ▶[/]")
+                    self._log("grinder moved — confirm on the machine to start ▶", "yellow")
+                else:
+                    self._brew_status(f"{head}\n[cyan]● brewing…[/]")
+                    self._log("brew started ▶", "cyan")
             else:
                 # Load-only: the machine is armed; the human approves ON THE MACHINE.
                 # Telemetry keeps streaming, so the graph + history fill in either way.
@@ -876,6 +883,10 @@ class XBloomApp(App):
                 started is not None and started.raw
                 and started.state_name in ("starting", "brewing")
             )
+            # The machine is waiting for a press on the machine (after a grind-size
+            # change): a person has to act, so the "didn't start" guard must not cancel.
+            awaiting_press = bool(started is not None
+                                  and started.state_name == "awaiting_confirm")
             completed = False           # the brew reached a natural end (record history)
             last_water = last_coffee = 0.0   # running scale values (frames are separate)
             last_replot = 0.0
@@ -958,7 +969,8 @@ class XBloomApp(App):
                     # normal finish (record history); an early idle without progress is not.
                     completed = saw_progress
                     break
-                if remote_start and not saw_progress and (time.monotonic() - t0) > _GRIND_GUARD_S:
+                if (remote_start and not saw_progress and not awaiting_press
+                        and (time.monotonic() - t0) > _GRIND_GUARD_S):
                     # We commanded a remote start but the machine never actually brewed
                     # (it reverts to armed ~1-2s later when there are no beans / it isn't
                     # ready). Stop instead of streaming forever; nudge to check the setup.
