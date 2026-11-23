@@ -230,6 +230,13 @@
      them, side by side just above BREW. */
   .edit-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .edit-actions[hidden] { display: none; }
+  /* what Save would write: each edited parameter, saved value → value on screen */
+  .edit-diff { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column;
+               gap: 3px; font-size: 13px; line-height: 1.4; }
+  .edit-diff[hidden] { display: none; }
+  .edit-diff .k { color: var(--dim); }
+  .edit-diff .was { font-family: var(--mono); color: var(--dim); text-decoration: line-through; }
+  .edit-diff .now { font-family: var(--mono); color: var(--ink); font-weight: 600; }
   .brewbtn { align-self: stretch; padding: 22px 28px;
              font-size: 20px; font-weight: 800; letter-spacing: 0.12em; }
   .banner { margin-top: 14px; padding: 9px 12px; border-radius: var(--r); font-size: 13px; }
@@ -397,6 +404,7 @@
             <button id="custom-save">Save New Recipe</button>
           </div>
           <!-- only while a saved recipe has edits that are not on disk yet -->
+          <ul class="edit-diff" id="edit-diff" hidden></ul>
           <div class="edit-actions" id="edit-actions" hidden>
             <button id="edit-discard">Discard changes</button>
             <button class="primary" id="edit-save">Save</button>
@@ -873,6 +881,7 @@ function renderStaged() {
     : saveState ? saveState
     : dirty ? 'unsaved changes' : 'saved';
   $('edit-actions').hidden = !dirty;
+  renderDiff(dirty);
   const invalid = planData && !planData.valid;
   $('edit-save').disabled = invalid || saveState === 'saving';
   $('edit-save').title = invalid ? `Not saveable \u2014 ${planData.error}` : '';
@@ -903,6 +912,20 @@ function renderStaged() {
   });
 }
 
+/** List each parameter that differs from the saved recipe, saved → on screen. */
+function renderDiff(dirty) {
+  const box = $('edit-diff');
+  box.hidden = !dirty;
+  if (!dirty) { box.innerHTML = ''; return; }
+  const unit = (r) => (r.unit === 'C' ? '\u00b0C' : r.unit ? ' ' + r.unit : '');
+  box.innerHTML = lastRows
+    .filter((r) => r.key in staged.saved && String(params[r.key]) !== String(staged.saved[r.key]))
+    .map((r) => `<li><span class="k">${esc(r.label.toLowerCase())}</span> ` +
+                `<span class="was">${esc(String(staged.saved[r.key]))}${esc(unit(r))}</span> ` +
+                `\u2192 <span class="now">${esc(String(params[r.key]))}${esc(unit(r))}</span></li>`)
+    .join('');
+}
+
 async function doFork() {
   try {
     await flushNotes();
@@ -928,9 +951,8 @@ async function doDelete(file, label) {
 function renderPlan(p) {
   planData = p;
 
-  // What this brew is, as a few short lines: its name, how far it is from the defaults,
-  // and the water, temperatures and pours those parameters generate.
-  const changed = lastRows.filter((r) => !r.is_default);
+  // What this brew is, as a few short lines: the water, temperatures and pours its
+  // parameters generate. (Edits vs the saved recipe are listed above Save, not here.)
   const temps = p.pours.map((x) => x.temp_c);
   const pours = p.pours.map((x, i) => (i === 0 ? `<em>${x.ml}</em>` : String(x.ml))).join(' + ');
   const line = (k, v, cls) => `<dt>${k}</dt><dd${cls ? ` class="${cls}"` : ''}>${v}</dd>`;
@@ -944,10 +966,6 @@ function renderPlan(p) {
     return;
   }
   $('summary').innerHTML =
-    (changed.length
-      ? line('Changed', changed.map((r) => `${esc(r.label.toLowerCase())} ${esc(r.display)}`)
-                               .join(', '))
-      : line('Changed', 'nothing, all defaults', 'none')) +
     line('Water', `${p.total_ml} ml = ${pours}`) +
     line('Temp', `bloom ${temps[0]} \u00b7 pours ${temps[1]} \u2192 ${temps[temps.length - 1]} \u00b0C`) +
     line('Pours', `${p.pours.length} \u00b7 ${p.grind === 0 ? 'pre-ground' : 'grind ' + p.grind}`);
