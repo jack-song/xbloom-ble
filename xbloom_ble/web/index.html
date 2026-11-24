@@ -139,7 +139,6 @@
   .fields.locked { opacity: 0.3; pointer-events: none; }
   .side { padding: 18px 20px; }
   @media (max-width: 760px) { .brewpane { grid-template-columns: 1fr; } }
-  .others { margin-top: 14px; }
 
   /* No padding on the row itself: the label and the input carry it instead, so between
      them they cover every pixel of the stripe. There is no dead space to miss. */
@@ -182,6 +181,49 @@
     padding: 3px 5px; border-radius: var(--r);
   }
   .p .revert:hover { background: var(--wash); }
+
+  /* Sections: grind, main, bloom, pours — each in its own colour, a bar down its left
+     edge, a little space between. No headings; the colour and the gap say it. Every
+     label in a section wears the section's hue. */
+  .sec { border-left: 3px solid var(--hue); padding-left: 0; }
+  .sec + .sec { margin-top: 14px; }
+  .sec .p .label { color: var(--hue); }
+
+  /* Grinder on/off: a switch filling the value cell. Off hides grind size and RPM. */
+  .p.toggle { cursor: pointer; }
+  .p.toggle .val { align-items: center; padding: 0 12px 0 0; }
+  .switch { position: relative; width: 40px; height: 22px; flex: none; }
+  .switch input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer;
+                  padding: 0; }
+  .switch .track { position: absolute; inset: 0; border-radius: 11px; background: var(--wash);
+                   transition: background .15s; pointer-events: none; }
+  .switch .track::after { content: ''; position: absolute; top: 3px; left: 3px; width: 16px;
+                          height: 16px; border-radius: 50%; background: var(--dim);
+                          transition: left .15s, background .15s; }
+  .switch input:checked + .track { background: var(--hue); }
+  .switch input:checked + .track::after { left: 21px; background: var(--panel); }
+  .switch input:focus-visible + .track { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .switch-state { font: 600 15px var(--sans); color: var(--dim); margin-left: 10px;
+                  letter-spacing: 0; }
+
+  /* Pour patterns: one icon dropdown per pour, bloom first, in a row. */
+  .pats { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 34px 8px 8px; }
+  .pat { position: relative; display: flex; flex-direction: column; align-items: center;
+         gap: 2px; }
+  .pat .cap { font: 600 11px var(--sans); color: var(--hue); letter-spacing: .04em; }
+  .pat > button { padding: 6px; background: transparent; color: var(--ink); line-height: 0; }
+  .pat > button:hover { background: var(--wash); filter: none; }
+  .pat > button.odd { color: var(--hue); background: var(--tint); }
+  .pat svg { width: 26px; height: 26px; display: block; }
+  /* Fixed, and placed under its button by script: the brew panel clips its overflow. */
+  .pat-menu { position: fixed; z-index: 5; background: var(--panel); color: var(--ink);
+              border-radius: var(--r); box-shadow: 0 6px 24px rgba(0,0,0,.22);
+              padding: 4px; display: flex; flex-direction: column; min-width: 120px;
+              text-shadow: none; }
+  .pat-menu button { display: flex; align-items: center; gap: 10px; background: transparent;
+                     padding: 7px 10px; text-align: left; color: var(--ink); }
+  .pat-menu button:hover, .pat-menu button.sel { background: var(--wash); filter: none; }
+  .pat-menu svg { width: 20px; height: 20px; }
 
   /* changed: the card takes the parameter's own colour */
   .fields .p.on, .fields .p.on:hover, .fields .p.on:focus-within {
@@ -239,6 +281,23 @@
   .edit-diff .now { font-family: var(--mono); color: var(--ink); font-weight: 600; }
   .brewbtn { align-self: stretch; padding: 22px 28px;
              font-size: 20px; font-weight: 800; letter-spacing: 0.12em; }
+  .brewbtn[hidden] { display: none; }
+  /* While a run is live, BREW gives way to what the machine is doing, in the same box.
+     The dots hang off the end of the text, outside its box, so the words stay centred
+     and still while the dots come and go. */
+  .brewstatus { padding: 22px 28px; border-radius: var(--r); background: var(--wash);
+                font: 800 20px/1 var(--sans); letter-spacing: 0.12em; text-align: center;
+                text-transform: uppercase; color: var(--accent); }
+  .brewstatus[hidden] { display: none; }
+  .brewstatus .txt { position: relative; display: inline-block; }
+  .brewstatus .dots { position: absolute; left: 100%; bottom: 0; letter-spacing: 0.05em; }
+  .brewstatus .dots i { font-style: normal; animation: dot 1.4s infinite; opacity: 0; }
+  .brewstatus .dots i:nth-child(2) { animation-delay: .2s; }
+  .brewstatus .dots i:nth-child(3) { animation-delay: .4s; }
+  @keyframes dot { 0%, 15% { opacity: 0; } 30%, 80% { opacity: 1; } 100% { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) {
+    .brewstatus .dots i { animation: none; opacity: 1; }
+  }
   .banner { margin-top: 14px; padding: 9px 12px; border-radius: var(--r); font-size: 13px; }
   .banner.bad { background: var(--danger-soft); color: var(--danger); }
   .banner.warn { background: var(--accent-soft); color: var(--accent); }
@@ -375,10 +434,7 @@
   <div class="layout">
     <!-- PARAMETERS: the main event ---------------------------------------- -->
     <section class="panel brewpane" id="brewpane">
-      <div class="fields" id="fields">
-        <div id="heroes"></div>
-        <div id="others"></div>
-      </div>
+      <div class="fields" id="fields"></div>
       <div class="side" id="brewside">
         <!-- the staged brew: its name (editable when it is a saved file) and status -->
         <div id="staged">
@@ -410,6 +466,8 @@
             <button class="primary" id="edit-save">Save</button>
           </div>
           <button class="danger brewbtn" id="start">BREW</button>
+          <div class="brewstatus" id="brew-status" role="status" hidden><span class="txt"><span
+            id="brew-status-text"></span><span class="dots" aria-hidden="true"><i>.</i><i>.</i><i>.</i></span></span></div>
         </div>
       </div>
     </section>
@@ -490,10 +548,19 @@ let saveState = '';       // '' | 'saving' | 'error: …'
 let pending = null;       // {file} when the start dialog was opened from a cached brew
 let pollTimer = null, logSince = 0;
 
-// The four parameters that decide how the cup tastes get their own colour and the
-// big cards; everything else is a knob you set once and rarely touch.
-const HERO = {dose: 'dose', ratio: 'ratio', temp: 'temp', bloom_time: 'bloom',
-              bloom_temp: 'bloom'};
+// The parameters in four sections, top to bottom: grind, main, bloom, pours. Each has
+// its own colour (the tokens are the old headline hues, so every tone has them).
+const SECTIONS = [
+  {id: 'grind', hue: 'dose', keys: ['grind', 'rpm']},
+  {id: 'main', hue: 'temp', keys: ['dose', 'ratio', 'temp', 'pours', 'pause', 'flow']},
+  {id: 'bloom', hue: 'bloom', keys: ['bloom_time', 'bloom_temp']},
+  {id: 'pours', hue: 'ratio', keys: ['patterns']},
+];
+// The values that decide how the cup tastes are drawn bigger.
+const HERO = new Set(['dose', 'ratio', 'temp', 'bloom_time', 'bloom_temp']);
+// Turning the grinder back on restores the last grind size, or this one.
+const GRIND_ON_DEFAULT = 55;
+let lastGrind = GRIND_ON_DEFAULT;
 
 const POST = (path, body) => fetch(path, {
   method: 'POST',
@@ -516,11 +583,8 @@ function stale(r, data) {
 
 // --- parameters ------------------------------------------------------------
 function paramCard(row) {
-  const hue = HERO[row.key];
   const el = document.createElement('div');
-  el.className = 'p' + (hue ? ' hero' : '') + (row.is_default ? '' : ' on');
-  if (hue) el.style.cssText = `--hue: var(--${hue}); --tint: var(--${hue}-soft)`;
-  else el.style.cssText = '--hue: var(--accent); --tint: var(--accent-soft)';
+  el.className = 'p' + (HERO.has(row.key) ? ' hero' : '') + (row.is_default ? '' : ' on');
 
   const label = document.createElement('label');
   label.className = 'label';
@@ -595,13 +659,145 @@ function paramCard(row) {
   return el;
 }
 
+// --- pour patterns -------------------------------------------------------------
+// Icons for where each pour's water lands: a spiral out from the middle, a ring at the
+// edge, or one spot in the centre.
+const SPIRAL_D = (() => {
+  const pts = [];
+  for (let t = 0; t <= 6 * Math.PI; t += 0.2) {
+    const r = 0.5 + t * 0.47;
+    pts.push(`${(12 + r * Math.cos(t)).toFixed(2)} ${(12 + r * Math.sin(t)).toFixed(2)}`);
+  }
+  return 'M' + pts.join(' L');
+})();
+const PATTERN_ICONS = {
+  spiral: `<path d="${SPIRAL_D}" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>`,
+  ring: '<circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/>',
+  center: '<circle cx="12" cy="12" r="3.6" fill="currentColor"/>',
+};
+const patIcon = (name) =>
+  `<svg viewBox="0 0 24 24" aria-hidden="true">${PATTERN_ICONS[name] || ''}</svg>`;
+let openPat = null;          // index of the pour whose menu is open, or null
+
+function patternsCard(row) {
+  const el = document.createElement('div');
+  el.className = 'p pats-row' + (row.is_default ? '' : ' on');
+  el.style.display = 'block';
+  const list = String(row.value).split(',');
+  const wrap = document.createElement('div');
+  wrap.className = 'pats';
+  list.forEach((name, i) => {
+    const cell = document.createElement('div');
+    cell.className = 'pat';
+    const cap = i === 0 ? 'Bloom' : String(i);
+    cell.innerHTML = `<button type="button" class="${name === 'spiral' ? '' : 'odd'}" ` +
+      `title="${esc(cap)}: ${esc(name)}" aria-haspopup="menu">${patIcon(name)}</button>` +
+      `<span class="cap">${esc(cap)}</span>`;
+    const btn = cell.querySelector('button');
+    btn.id = 'pat-' + i;
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openPat = openPat === i ? null : i;
+      renderParams(lastRows);
+    });
+    if (openPat === i) {
+      const menu = document.createElement('div');
+      menu.className = 'pat-menu';
+      menu.setAttribute('role', 'menu');
+      for (const opt of row.choices) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.setAttribute('role', 'menuitem');
+        if (opt === name) b.className = 'sel';
+        b.innerHTML = `${patIcon(opt)}<span>${esc(opt[0].toUpperCase() + opt.slice(1))}</span>`;
+        b.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const next = list.slice();
+          next[i] = opt;
+          params.patterns = next.join(',');
+          openPat = null;
+          refresh();
+        });
+        menu.appendChild(b);
+      }
+      cell.appendChild(menu);
+    }
+    wrap.appendChild(cell);
+  });
+  el.appendChild(wrap);
+  if (!row.is_default) {
+    const revert = document.createElement('button');
+    revert.className = 'revert';
+    revert.textContent = '\u21ba';
+    revert.title = 'Back to the default: every pour a spiral';
+    revert.addEventListener('click', () => { params.patterns = row.default; refresh(); });
+    el.appendChild(revert);
+  }
+  el.title = row.hint || '';
+  return el;
+}
+// Closing the menu only removes it: re-rendering the fields here would swap out the very
+// control the closing click landed on (the grinder switch, say) mid-click.
+function closePat() {
+  openPat = null;
+  document.querySelectorAll('.pat-menu').forEach((m) => m.remove());
+}
+document.addEventListener('click', (e) => {
+  if (openPat !== null && !e.target.closest('.pat-menu')) closePat();
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closePat(); });
+window.addEventListener('scroll', closePat, true);
+
+/** The grinder switch. Off is grind 0 (pre-ground), which hides grind size and RPM;
+ *  on brings back the last grind size used. */
+function grinderCard() {
+  const on = Number(params.grind) > 0;
+  const el = document.createElement('label');
+  el.className = 'p toggle' + (on ? ' on' : '');
+  el.innerHTML = '<span class="label">Grinder</span><span class="val"><span class="switch">' +
+    `<input type="checkbox" id="p-grinder" role="switch"${on ? ' checked' : ''}>` +
+    `<span class="track"></span></span><span class="switch-state">${on ? 'on' : 'off'}</span></span>`;
+  el.title = 'Off: brew pre-ground coffee, the grinder is skipped';
+  el.querySelector('input').addEventListener('change', (e) => {
+    if (e.target.checked) params.grind = lastGrind || GRIND_ON_DEFAULT;
+    else { lastGrind = Number(params.grind) || lastGrind; params.grind = 0; }
+    refresh();
+  });
+  return el;
+}
+
 function renderParams(rows) {
   lastRows = rows;
   const focused = document.activeElement && document.activeElement.id;
   const caret = focused && document.activeElement.selectionStart;
-  $('heroes').innerHTML = '';
-  $('others').innerHTML = '';
-  rows.forEach((r) => (HERO[r.key] ? $('heroes') : $('others')).appendChild(paramCard(r)));
+  const byKey = Object.fromEntries(rows.map((r) => [r.key, r]));
+  const placed = new Set(SECTIONS.flatMap((s) => s.keys));
+  const box = $('fields');
+  box.innerHTML = '';
+  const grinding = Number(params.grind) > 0;
+  if (grinding) lastGrind = Number(params.grind);
+  for (const sec of SECTIONS) {
+    const el = document.createElement('div');
+    el.className = 'sec sec-' + sec.id;
+    el.style.cssText = `--hue: var(--${sec.hue}); --tint: var(--${sec.hue}-soft)`;
+    // anything the server knows that no section names lands in "main", never lost
+    const keys = sec.id === 'main'
+      ? [...sec.keys, ...rows.map((r) => r.key).filter((k) => !placed.has(k))] : sec.keys;
+    if (sec.id === 'grind') el.appendChild(grinderCard());
+    for (const k of keys) {
+      const row = byKey[k];
+      if (!row) continue;
+      if (sec.id === 'grind' && !grinding) continue;
+      el.appendChild(k === 'patterns' ? patternsCard(row) : paramCard(row));
+    }
+    box.appendChild(el);
+  }
+  const menu = box.querySelector('.pat-menu');
+  if (menu) {
+    const r = menu.parentElement.querySelector('button').getBoundingClientRect();
+    menu.style.top = `${r.bottom + 4}px`;
+    menu.style.left = `${Math.max(8, r.left + r.width / 2 - menu.offsetWidth / 2)}px`;
+  }
   const back = focused && $(focused);
   if (back) {
     back.focus();
@@ -990,6 +1186,9 @@ async function refresh() {
   const r = await fetch('/api/plan?' + query());
   const p = await r.json();
   if (p.error && !p.params) { $('banners').innerHTML = `<div class="banner bad">${esc(p.error)}</div>`; return; }
+  // The server fits the patterns to the pour count (one per pour); take its list back so
+  // the page and "unsaved changes" compare like with like.
+  if (p.params && p.params.patterns) params.patterns = p.params.patterns;
   renderParams(p.rows);
   renderPlan(p);
 }
@@ -1046,12 +1245,33 @@ async function loadRecent() {
 // --- running ---------------------------------------------------------------
 let currentRun = null;
 const isRunning = () => currentRun && !currentRun.done;
+let runPhase = 'Connecting';   // what the live run is doing, read off its log
+
+/** One log line → the phase it announces, or null. The log is `xbloom brew`'s own
+ *  output: its progress messages, then a `[state]` line per machine status. */
+function phaseOf(line) {
+  const rules = [
+    [/scanning/i, 'Scanning'],
+    [/^Using /, 'Connecting'],
+    [/Loading recipe/, 'Loading'],
+    [/Starting the brew remotely/, 'Starting'],
+    [/\[awaiting_confirm\]/, 'Confirm on machine'],
+    [/\[starting\]/, 'Grinding'],
+    [/\[brewing\]/, 'Brewing'],
+    [/\[(ready|complete)\]/, 'Finishing'],
+    [/\[no_water\]/, 'No water'],
+    [/\[no_beans\]/, 'No beans'],
+    [/^ERROR/, 'Error'],
+  ];
+  for (const [re, phase] of rules) if (re.test(line)) return phase;
+  return null;
+}
 
 /** Start a brew. The only call on this page that reaches the machine. */
 async function go(body) {
   try {
     const d = await POST('/api/start', body);
-    logSince = 0; $('run-log').textContent = '';
+    logSince = 0; $('run-log').textContent = ''; runPhase = 'Connecting';
     showRun(d.run);
     poll();
     await loadRecent();       // a saved recipe that was brewed moves to the top
@@ -1071,7 +1291,7 @@ function showRun(run) {
 function renderRun(run) {
   const card = $('run-card');
   const d = run.details || {};
-  const [cls, state] = !run.done ? ['live', run.started_brew ? 'brewing\u2026' : 'loading\u2026']
+  const [cls, state] = !run.done ? ['live', runPhase.toLowerCase() + '\u2026']
     : run.returncode === 0 ? ['ok', run.started_brew ? 'finished' : 'loaded']
     : ['bad', `failed (exit ${run.returncode})`];
   const pours = (d.pours || []).map((p) =>
@@ -1091,13 +1311,19 @@ function renderRun(run) {
 /** Brew and the staged-bar buttons follow whether a run is live. */
 function syncBusy() {
   const ok = (staged && staged.readonly) || (planData && planData.valid);
-  $('start').disabled = !ok || isRunning();
+  const live = isRunning();
+  $('start').disabled = !ok || live;
+  $('start').hidden = live;
+  $('brew-status').hidden = !live;
+  $('brew-status-text').textContent = runPhase;
   renderStaged();
 }
 
 async function poll() {
   const d = await (await fetch('/api/run?since=' + logSince)).json();
   if (!d.run) return;
+  if (logSince === 0) runPhase = 'Connecting';
+  for (const line of d.run.lines) runPhase = phaseOf(line) || runPhase;
   if (d.run.lines.length) {
     const log = $('run-log');
     const atBottom = log.scrollTop + log.clientHeight >= log.scrollHeight - 24;

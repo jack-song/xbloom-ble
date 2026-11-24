@@ -149,7 +149,7 @@ def test_load_refuses_an_invalid_recipe(server):
 
 
 def test_load_rejects_a_bad_parameter(server):
-    status, data = post(server, "/api/load", {"params": {"pattern": "zigzag"}})
+    status, data = post(server, "/api/load", {"params": {"patterns": "zigzag"}})
     assert status == 400 and server.launched == []
 
 

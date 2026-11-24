@@ -29,8 +29,8 @@ def test_params_defaults_match_brewparams_defaults():
 
 
 def test_from_mapping_coerces_strings():
-    p = BrewParams.from_mapping({"dose": "15", "pours": "2", "pattern": "center"})
-    assert (p.dose, p.pours, p.pattern) == (15.0, 2, "center")
+    p = BrewParams.from_mapping({"dose": "15", "pours": "2", "patterns": "center,ring,spiral"})
+    assert (p.dose, p.pours, p.patterns) == (15.0, 2, "center,ring,spiral")
     assert isinstance(p.dose, float) and isinstance(p.pours, int)
 
 
@@ -46,9 +46,9 @@ def test_from_mapping_rejects_bad_values():
 
 
 def test_from_mapping_is_a_partial_update_over_base():
-    base = BrewParams(dose=15.0, pattern="center")
+    base = BrewParams(dose=15.0, patterns="center")
     p = BrewParams.from_mapping({"dose": 12}, base=base)
-    assert (p.dose, p.pattern) == (12.0, "center")
+    assert (p.dose, p.patterns) == (12.0, "center,spiral,spiral,spiral")
     assert base.dose == 15.0                             # the base is not mutated
 
 
@@ -116,7 +116,7 @@ def test_migrating_a_flat_pause_recipe_keeps_its_pause_as_the_first_wait(tmp_pat
 def test_migrating_a_center_rpm_zero_recipe_sends_its_rpm_everywhere(tmp_path):
     """A recipe saved when center pours sent rpm 0 no longer re-renders; migration keeps
     its rpm and now puts it on every pour, so a center bloom gives the grinder a speed."""
-    text = brewgen.to_yaml(BrewParams(pattern="center", rpm=80))
+    text = brewgen.to_yaml(BrewParams(patterns="center,spiral,center,center", rpm=80))
     text = text.replace("pattern: center, pause_s", "pattern: center, PAUSE")
     text = "\n".join(ln.replace("rpm: 80", "rpm: 0") if "PAUSE" in ln else ln
                      for ln in text.splitlines()).replace("PAUSE", "pause_s") + "\n"
@@ -148,7 +148,8 @@ def test_bloom_temp_is_its_own_parameter():
 def _old_rule_recipe(name=None):
     """What the generator wrote before the bloom had its own temperature: the bloom at
     ``temp`` and every pour 1 C cooler than the one before, with no bloom_temp key."""
-    text = brewgen.to_yaml(BrewParams(name=name, bloom_temp=80))
+    text = brewgen.to_yaml(BrewParams(name=name, bloom_temp=80,
+                                      patterns="spiral,center,spiral,spiral"))
     text = text.replace("temp_c: 80", "temp_c: 91").replace("temp_c: 91, pattern: center",
                                                           "temp_c: 90, pattern: center")
     text = text.replace("temp_c: 88", "temp_c: 89")
@@ -189,14 +190,14 @@ def test_migration_leaves_a_recipe_the_generator_never_wrote_alone(tmp_path):
 
 
 def test_pour_patterns_and_rpm():
-    """The dominant pattern covers the bloom and every main pour but the first. rpm is
-    the grinder's speed and only the first pour's reaches the machine, so every pour
-    carries it — a center bloom must not hand the grinder 0."""
-    p = brewgen.plan(BrewParams(pattern="spiral", pours=3))
-    assert [x["pattern"] for x in p.pours] == ["spiral", "center", "spiral", "spiral"]
+    """Each pour has its own pattern, all spiral by default. rpm is the grinder's speed
+    and only the first pour's reaches the machine, so every pour carries it — a center
+    bloom must not hand the grinder 0."""
+    p = brewgen.plan(BrewParams(pours=3))
+    assert [x["pattern"] for x in p.pours] == ["spiral"] * 4
     assert [x["rpm"] for x in p.pours] == [60, 60, 60, 60]
-    c = brewgen.plan(BrewParams(pattern="center", pours=2, rpm=90))
-    assert [x["pattern"] for x in c.pours] == ["center", "spiral", "center"]
+    c = brewgen.plan(BrewParams(patterns="center,ring,center", pours=2, rpm=90))
+    assert [x["pattern"] for x in c.pours] == ["center", "ring", "center"]
     assert [x["rpm"] for x in c.pours] == [90, 90, 90]
 
 
@@ -233,7 +234,8 @@ def test_cache_filename_lists_only_non_default_params():
     assert brewgen.cache_filename(BrewParams.defaults()) == f"{today}.yaml"
     assert brewgen.cache_filename(BrewParams(dose=15.0, ratio=16.0)) == \
         f"{today}-dose15-ratio16.yaml"
-    assert brewgen.cache_filename(BrewParams(pattern="center")) == f"{today}-center.yaml"
+    assert brewgen.cache_filename(BrewParams(patterns="center")) == f"{today}-patcsss.yaml"
+    assert brewgen.cache_filename(BrewParams(pours=4)) == f"{today}-pours4.yaml"
     assert "morningbrew" in brewgen.cache_filename(BrewParams(name="Morning Brew!"))
 
 
@@ -328,7 +330,7 @@ def test_run_brew_dry_run_executes_nothing():
 
 # --- reading a cached recipe back into parameters ----------------------------
 def test_params_round_trip_through_the_yaml():
-    p = brewgen.BrewParams(dose=15.0, ratio=16.0, temp=88, bloom_time=60, pattern="center",
+    p = brewgen.BrewParams(dose=15.0, ratio=16.0, temp=88, bloom_time=60, patterns="center,ring,spiral",
                            pours=2, pause=25, rpm=80, flow=4.0, grind=30)
     back = brewgen.params_from_yaml(brewgen.to_yaml(p))
     assert back == p
@@ -518,3 +520,36 @@ def test_age_counts_calendar_days_not_hours(tmp_path):
     assert brewgen.age(f, at(2026, 10, 5, 12, 0), today) == "7d ago"
     # a clock running ahead is never "-1d ago"
     assert brewgen.age(f, at(2026, 10, 13, 9, 0), today) == "today"
+
+
+# --- per-pour patterns ---------------------------------------------------------
+def test_patterns_fit_the_pour_count():
+    """One pattern per pour, bloom included: extra ones drop, missing ones are spirals."""
+    assert BrewParams(pours=2, patterns="ring").patterns == "ring,spiral,spiral"
+    p = BrewParams.from_mapping({"patterns": "center,ring,ring,ring,ring,ring"})
+    assert p.patterns == "center,ring,ring,ring"
+    assert BrewParams.from_mapping({"pours": 5}, base=p).patterns == \
+        "center,ring,ring,ring,spiral,spiral"
+
+
+def test_patterns_reject_unknown_tokens():
+    with pytest.raises(ParamError):
+        BrewParams.from_mapping({"patterns": "spiral,zigzag"})
+    with pytest.raises(ParamError):
+        BrewParams.from_mapping({"patterns": ""})
+
+
+def test_all_spiral_is_default_at_any_pour_count():
+    assert BrewParams(pours=5).is_default("patterns")
+    assert not BrewParams(patterns="center").is_default("patterns")
+
+
+def test_a_legacy_pattern_line_keeps_its_pours():
+    """Files saved with the old single ``pattern=`` key still read back exactly: it is
+    spelled out as the old rule (dominant everywhere but the first main pour)."""
+    old = BrewParams(patterns="center,spiral,center,center")
+    text = brewgen.to_yaml(old).replace("patterns=center,spiral,center,center",
+                                        "pattern=center")
+    assert "pattern=center" in text
+    back = brewgen.params_from_yaml(text)
+    assert back is not None and back.patterns == old.patterns

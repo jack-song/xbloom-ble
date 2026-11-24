@@ -271,9 +271,11 @@ xbloom web --port 9000 --no-open --address AA:BB:CC:DD:EE:FF
 
 The page shows, side by side:
 
-- **the ten parameters** — dose, ratio, temp, bloom time, pattern, main pours, pause,
-  rpm, flow, grind — each with its units and range, and a dot next to any you have
-  changed from the default;
+- **the parameters**, in four colour-coded sections — **grind** (a grinder on/off
+  switch; on shows grind size and grinder RPM), **main** (dose, ratio, temp, main pours,
+  pause, flow), **bloom** (bloom time and temp) and **pours** (one icon dropdown per
+  pour, bloom first: spiral, ring or center; all spiral by default) — each tinted when
+  changed from its default;
 - **the brew they produce** — the derived name, the headline numbers (dose / ratio /
   total water / grind), and a row per pour with its volume (bar-scaled so the shape of
   the brew is visible at a glance), temperature, pattern, rpm and the pause after it;
@@ -281,7 +283,9 @@ The page shows, side by side:
   keystroke, plus a warning if any pour exceeds the 127 ml the phone app ever sends;
 - **the live run**, in a column of its own — the recipe the machine was handed (name,
   summary and every pour, read from the file that ran) with the `xbloom brew` output
-  streaming in under it;
+  streaming in under it, ending with the brew time from the first pour of water. While
+  it runs, the BREW button is replaced by what the machine is doing (connecting,
+  loading, grinding, brewing…);
 - **recent brews**, re-loadable *as they are on disk* (no regeneration, so a repeat is
   byte-identical to what ran last time). Editing a staged one changes only the page until
   you press *Save*; *Discard changes* puts it back. Brewing with unsaved edits brews what
@@ -295,7 +299,7 @@ pass `--start`. The server binds loopback, and its POST routes require a header 
 cross-origin page cannot send, so a website you happen to have open cannot reach it.
 
 The same logic is available as a plain terminal guide — `scripts/gen-brew.py`, every
-parameter on one screen, `[1-10]` to edit, `[g]` to load, `[s]` to load and start. Both
+parameter on one screen, `[1-11]` to edit, `[g]` to load, `[s]` to load and start. Both
 front-ends sit on `xbloom_ble.brewgen`, so they cannot disagree about what a given set
 of parameters brews.
 
@@ -803,7 +807,7 @@ be too:
 ```python
 from xbloom_ble import brewgen
 
-params = brewgen.BrewParams(dose=15.0, ratio=16.0, pattern="center")
+params = brewgen.BrewParams(dose=15.0, ratio=16.0, patterns="spiral,center,spiral,ring")
 plan = brewgen.plan(params)          # volumes, pours, YAML, validation, cache filename
 print(plan.total_ml, plan.valid, plan.error)
 path, unchanged = brewgen.write_cached(params)

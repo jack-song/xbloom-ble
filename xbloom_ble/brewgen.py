@@ -10,6 +10,7 @@ front-ends over what is here, so they cannot drift from each other.
 The shape of a generated brew is fixed: a bloom at its own temperature plus 2-5 main
 pours, the water stepping down 1 C per pour and 2 C on the last, the wait after each main
 pour 4 s longer than the one before, equal main-pour volumes, no vibration on any pour.
+Each pour's pattern (spiral, ring or center) is chosen on its own; all spiral by default.
 
 Safety (see CLAUDE.md's invariant): :func:`brew_argv` builds a **load-only** command
 unless ``start=True`` is passed explicitly, and :func:`run_brew` refuses a remote start
@@ -45,6 +46,11 @@ APP_MAX_POUR_ML = 127
 # How much longer each main pour waits than the one before it. The bed gets deeper and
 # slower to drain with every pour, so a fixed pause would cut each drawdown shorter.
 PAUSE_STEP_S = 4
+
+# Where each pour's water lands (recipe.PATTERN_CODES). Every pour, bloom included, picks
+# its own; a pour nobody has picked for is a spiral.
+PATTERNS = ("spiral", "ring", "center")
+DEFAULT_PATTERN = "spiral"
 
 
 class ParamError(ValueError):
@@ -91,6 +97,9 @@ class Param:
     lo: float | None = None
     hi: float | None = None
     step: float | None = None
+    # A parser for a value that is more than one scalar (the per-pour patterns). It
+    # takes the raw value and returns the canonical one, or raises ParamError.
+    parse: Callable[[Any], Any] | None = None
 
     def show(self, value: Any) -> str:
         """The value as a human reads it: ``1:17``, ``91 C``, ``3.5 ml/s``."""
@@ -100,6 +109,8 @@ class Param:
 
     def coerce(self, raw: Any) -> Any:
         """Parse one untrusted value (a CLI string, a JSON field) → ParamError."""
+        if self.parse is not None:
+            return self.parse(raw)
         try:
             value = self.type(raw)
         except (TypeError, ValueError) as exc:
@@ -113,6 +124,40 @@ class Param:
 # The bloom starts at the main pours' temperature unless set apart, so one constant feeds
 # both defaults (here and in BrewParams) and they cannot drift.
 TEMP_DEFAULT = 91
+POURS_DEFAULT = 3
+
+
+def parse_patterns(raw: Any) -> str:
+    """``"spiral,center,ring"`` (or a list) → the canonical comma-joined string.
+
+    Only the tokens are checked here; matching their count to the pours is
+    :func:`fit_patterns`' job, since the pour count may arrive after this value does.
+    """
+    tokens = raw if isinstance(raw, (list, tuple)) else str(raw).split(",")
+    out = [str(t).strip().lower() for t in tokens if str(t).strip()]
+    bad = [t for t in out if t not in PATTERNS]
+    if bad or not out:
+        raise ParamError(f"patterns: each pour must be one of {', '.join(PATTERNS)}"
+                         + (f" (got '{bad[0]}')" if bad else ""))
+    return ",".join(out)
+
+
+def fit_patterns(patterns: str, pours: int) -> str:
+    """Exactly one pattern per pour (the bloom plus ``pours`` main pours): extra ones are
+    dropped, missing ones are spirals."""
+    have = [t for t in str(patterns).split(",") if t]
+    n = int(pours) + 1
+    return ",".join((have + [DEFAULT_PATTERN] * n)[:n])
+
+
+def legacy_patterns(pattern: str, pours: int) -> str:
+    """The old single ``pattern`` parameter, spelled out per pour: the "dominant" pattern
+    on the bloom and every main pour but the first, which got the other one."""
+    other = "center" if pattern == "spiral" else "spiral"
+    return ",".join([pattern, other] + [pattern] * (int(pours) - 1))
+
+
+PATTERNS_DEFAULT = fit_patterns(DEFAULT_PATTERN, POURS_DEFAULT)
 
 PARAMS: tuple[Param, ...] = (
     Param("dose", "--dose", "dose", float, 10.0, "1-18 g", " g", lo=1, hi=18, step=0.5),
@@ -123,10 +168,11 @@ PARAMS: tuple[Param, ...] = (
           lo=0, hi=180, step=5),
     Param("bloom_temp", "--bloom-temp", "bloom temp", int, TEMP_DEFAULT, "water for the bloom",
           " C", lo=40, hi=95, step=1),
-    Param("pattern", "--pattern", "pattern", str, "spiral",
-          "dominant: bloom + all main pours but the first", choices=("spiral", "center")),
-    Param("pours", "--pours", "main pours", int, 3, "2-5 (plus the bloom)",
+    Param("pours", "--pours", "main pours", int, POURS_DEFAULT, "2-5 (plus the bloom)",
           choices=(2, 3, 4, 5)),
+    Param("patterns", "--patterns", "patterns", str, PATTERNS_DEFAULT,
+          "one per pour, bloom first: spiral, ring or center, comma-separated",
+          parse=parse_patterns),
     Param("pause", "--pause", "pause", int, 15, "after the first main pour; +4 s each after",
           " s",
           lo=0, hi=120, step=5),
@@ -153,14 +199,17 @@ class BrewParams:
     temp: int = TEMP_DEFAULT
     bloom_time: int = 50
     bloom_temp: int = TEMP_DEFAULT
-    pattern: str = "spiral"
-    pours: int = 3
+    pours: int = POURS_DEFAULT
+    patterns: str = PATTERNS_DEFAULT
     pause: int = 15
     rpm: int = 60
     flow: float = 3.5
     grind: int = 0
     # Not a Param: it has no default to compare against and no place in the table.
     name: str | None = None
+
+    def __post_init__(self) -> None:
+        self.patterns = fit_patterns(self.patterns, self.pours)
 
     @classmethod
     def from_mapping(cls, data: Any, *, base: BrewParams | None = None) -> BrewParams:
@@ -170,19 +219,39 @@ class BrewParams:
         partial update. Unknown keys are an error rather than being ignored — a typo'd
         ``--tempurature`` that silently brewed at the default is exactly the kind of
         thing worth failing loudly on.
+
+        The retired single ``pattern`` key is still read (older ``# params:`` lines carry
+        it) and spelled out per pour, unless ``patterns`` is given too.
         """
         out = replace(base) if base is not None else cls()
         if not isinstance(data, dict):
             raise ParamError("expected an object of parameters")
+        legacy: str | None = None
         for key, raw in data.items():
             if key == "name":
                 out.name = None if raw in (None, "") else str(raw)
+                continue
+            if key == "pattern":
+                legacy = parse_patterns(raw).split(",")[0]
                 continue
             param = PARAMS_BY_KEY.get(key)
             if param is None:
                 raise ParamError(f"unknown parameter '{key}'")
             setattr(out, key, param.coerce(raw))
+        if legacy is not None and "patterns" not in data:
+            out.patterns = legacy_patterns(legacy, out.pours)
+        out.patterns = fit_patterns(out.patterns, out.pours)
         return out
+
+    def pattern_list(self) -> list[str]:
+        return self.patterns.split(",")
+
+    def is_default(self, key: str) -> bool:
+        """On its default? Patterns are default when every pour is a spiral, however
+        many pours there are."""
+        if key == "patterns":
+            return all(t == DEFAULT_PATTERN for t in self.pattern_list())
+        return getattr(self, key) == PARAMS_BY_KEY[key].default
 
     @classmethod
     def defaults(cls) -> BrewParams:
@@ -201,18 +270,25 @@ class BrewParams:
             "display": p.show(getattr(self, p.key)),
             "hint": p.hint,
             "unit": p.unit.strip(),
-            "choices": list(p.choices) if p.choices else None,
+            "choices": list(p.choices) if p.choices else (
+                list(PATTERNS) if p.key == "patterns" else None),
             "default": p.default,
             "default_display": p.show(p.default),
-            "is_default": getattr(self, p.key) == p.default,
+            "is_default": self.is_default(p.key),
             "lo": p.lo,
             "hi": p.hi,
             "step": p.step,
         } for p in PARAMS]
 
 
+def pattern_summary(p: BrewParams) -> str:
+    """``spiral`` when every pour shares one pattern, else ``mixed``."""
+    kinds = set(p.pattern_list())
+    return kinds.pop() if len(kinds) == 1 else "mixed"
+
+
 def derived_name(p: BrewParams) -> str:
-    return p.name or f"Gen {p.dose:g}g 1:{p.ratio:g} {p.pattern} {p.pours}p"
+    return p.name or f"Gen {p.dose:g}g 1:{p.ratio:g} {pattern_summary(p)} {p.pours}p"
 
 
 def pour_temps(p: BrewParams) -> list[int]:
@@ -236,10 +312,8 @@ def pour_pauses(p: BrewParams) -> list[int]:
 
 
 def build_pours(p: BrewParams) -> list[dict[str, Any]]:
-    """Bloom + main pours. The 'dominant' pattern covers the bloom and every main pour
-    except the FIRST one, which gets the other pattern."""
-    other = "center" if p.pattern == "spiral" else "spiral"
-    patterns = [p.pattern, other] + [p.pattern] * (p.pours - 1)
+    """Bloom + main pours, each with its own pattern from ``p.patterns``."""
+    patterns = fit_patterns(p.patterns, p.pours).split(",")
     bloom_ml, main_ml, _ = volumes(p.dose, p.ratio, p.pours)
     return [{
         "label": "Bloom" if i == 0 else f"Pour {i}",
@@ -270,7 +344,8 @@ def to_yaml(p: BrewParams) -> str:
     lines = [
         f"# {name}",
         "#",
-        f"# Generated by xbloom brewgen — {p.pattern}-dominant, {p.pours} main pours.",
+        f"# Generated by xbloom brewgen — {p.pours} main pours; patterns "
+        f"{p.patterns.replace(',', ', ')}.",
         f"# Bloom {bloom_ml} ml = {bloom_x:.2f}x dose (formula target "
         f"{mult:.2f}x = {round(p.dose * mult)} ml; the bloom carries the rounding so the",
         f"# {p.pours} main pours come out exactly equal at {main_ml} ml and Σ = {total} ml "
@@ -329,7 +404,7 @@ def params_from_yaml(text: str) -> BrewParams | None:
             data: dict[str, Any] = {}
             for pair in line[len(PARAMS_MARK):].split():
                 key, _, val = pair.partition("=")
-                if key in PARAMS_BY_KEY:
+                if key in PARAMS_BY_KEY or key == "pattern":
                     data[key] = val
             try:
                 out = BrewParams.from_mapping(data)
@@ -368,7 +443,7 @@ def legacy_params(text: str) -> BrewParams | None:
     data: dict[str, Any] = {}
     for pair in line[len(PARAMS_MARK):].split():
         key, _, val = pair.partition("=")
-        if key in PARAMS_BY_KEY and key not in ("temp", "bloom_temp"):
+        if (key in PARAMS_BY_KEY or key == "pattern") and key not in ("temp", "bloom_temp"):
             data[key] = val
     try:
         out = BrewParams.from_mapping(data)
@@ -409,8 +484,9 @@ def _recovered(text: str) -> BrewParams | None:
             dose=float(head["dose_g"]), ratio=float(head["ratio"]),
             grind=int(head["grind"]), temp=int(first["temp_c"]),
             bloom_temp=int(bloom["temp_c"]),
-            bloom_time=int(bloom["pause_s"]), pattern=bloom["pattern"],
-            pours=len(body) - 1, pause=int(first["pause_s"]),
+            bloom_time=int(bloom["pause_s"]),
+            patterns=",".join(x["pattern"] for x in body), pours=len(body) - 1,
+            pause=int(first["pause_s"]),
             rpm=int(last["rpm"]) or int(first["rpm"]), flow=float(first["flow_ml_s"]),
         )
     except (KeyError, ValueError, IndexError):
@@ -637,10 +713,11 @@ def cache_filename(p: BrewParams) -> str:
     parts = []
     for param in PARAMS:
         value = getattr(p, param.key)
-        if value == param.default:
+        if p.is_default(param.key):
             continue
-        if param.key == "pattern":
-            parts.append(str(value))            # "center" needs no label to be clear
+        if param.key == "patterns":
+            # one letter per pour: "patscss" = spiral bloom, center, spiral, spiral
+            parts.append("pat" + "".join(t[0] for t in p.pattern_list()))
         else:
             key = param.key.replace("_", "")
             parts.append(f"{key}{value:g}" if isinstance(value, float) else f"{key}{value}")
