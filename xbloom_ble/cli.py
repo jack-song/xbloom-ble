@@ -129,9 +129,17 @@ async def _cmd_brew(args) -> int:
 
     # 3. Connect + load.
     events: list[dict] = []
+    # Brew time runs from the first pour of water (the first "brewing" status — the
+    # grind before it is silent) to the end-of-brew status, as the app's timer does.
+    pour_span: dict[str, float] = {}
 
     def _record(ev: StatusEvent) -> None:
-        entry = {"t": round(time.time(), 3), "state": ev.state_name}
+        now = time.time()
+        if ev.state_name == "brewing":
+            pour_span.setdefault("start", now)
+        elif ev.is_terminal and "start" in pour_span:
+            pour_span.setdefault("end", now)
+        entry = {"t": round(now, 3), "state": ev.state_name}
         if ev.water_g is not None:
             entry["water_g"] = ev.water_g
         if ev.coffee_g is not None:
@@ -181,6 +189,7 @@ async def _cmd_brew(args) -> int:
             )
     except Exception as exc:  # noqa: BLE001 - surface any BLE error cleanly
         print(f"ERROR: {exc}")
+        _print_brew_time(pour_span)
         return 3
 
     # 4. Save telemetry log.
@@ -194,7 +203,18 @@ async def _cmd_brew(args) -> int:
         encoding="utf-8",
     )
     print(f"\nTelemetry log saved to {out}")
+    _print_brew_time(pour_span)
     return 0
+
+
+def _print_brew_time(span: dict[str, float]) -> None:
+    """The run's last line: how long the brew took from its first pour of water. Nothing
+    when no water was poured (load-only, refused, or the link dropped before the pour)."""
+    if "start" not in span:
+        return
+    secs = round(span.get("end", time.time()) - span["start"])
+    unfinished = "" if "end" in span else ", still running when the log stopped"
+    print(f"Brew time: {secs // 60}:{secs % 60:02d} (from first pour{unfinished})")
 
 
 # ---------------------------------------------------------------------------

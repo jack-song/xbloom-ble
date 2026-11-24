@@ -271,3 +271,11 @@ def test_build_parser_brew_flags():
     parser = cli.build_parser()
     args = parser.parse_args(["brew", "r.yaml", "--start", "--address", "AA:BB:CC:DD:EE:FF"])
     assert args.command == "brew" and args.start is True
+
+
+def test_brew_time_is_measured_from_the_first_pour(capsys):
+    from xbloom_ble.cli import _print_brew_time
+    _print_brew_time({})                                  # no pour: no line at all
+    assert capsys.readouterr().out == ""
+    _print_brew_time({"start": 100.0, "end": 261.4})
+    assert capsys.readouterr().out == "Brew time: 2:41 (from first pour)\n"
