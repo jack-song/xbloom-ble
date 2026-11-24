@@ -286,8 +286,9 @@ class Recipe:
             # here, so the numeric validator range is 40–95.
             if not (40 <= int(p.temp_c) <= 95):
                 errors.append(f"pour #{i}: temp_c {p.temp_c} out of range (40–95°C)")
-            # rpm: agitation speed, 60–120 in 10-RPM steps — EXCEPT a `center` pour
-            # has no agitation, where rpm must be 0. (xBloom Studio published spec.)
+            # rpm: grinder speed, 60–120 in 10-RPM steps (xBloom Studio published spec).
+            # A `center` pour may also carry 0 — a rule from when rpm was read as the
+            # pour head's rotation. Only the first pour's value is sent (protocol.build_41).
             if p.pattern == "center":
                 if int(p.rpm) != 0 and not (60 <= int(p.rpm) <= 120):
                     errors.append(

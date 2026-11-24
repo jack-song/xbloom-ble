@@ -14,7 +14,7 @@ ratio: 17
 pours:
   # Max pause_s is 99s.
   # app also offers special non-numeric RT (room temp) and BP (boiling point) settings, outside this numeric range.
-  # 60–120 in 10-RPM steps; 0 (no agitation) is allowed only for center pours.
+  # rpm is the GRINDER speed, 60–120 in 10-RPM steps; only the first pour's is sent.
   - {label: Bloom,  ml: 35, temp_c: 91, pattern: spiral, pause_s: 50, rpm: 60, flow_ml_s: 3.5, agitation: false}
   # Max ml is 127.
   - {label: Pour 1, ml: 45, temp_c: 91, pattern: center, pause_s: 20, rpm: 0, flow_ml_s: 3.5, agitation: false}

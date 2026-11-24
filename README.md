@@ -432,7 +432,7 @@ Per-pour fields (ranges are **firm — per xBloom Studio specs**):
 | `agitation` | Shake the holder **after** this pour (alias: `vibrate_after`). Any pattern. Default `false`. |
 | `vibrate_before` | Shake the holder **before** this pour. Any pattern. Default `false`. |
 | `pause_s`   | Pause after this pour, seconds (0–255; the on-machine countdown caps near 99 s). |
-| `rpm`       | Agitation rotation speed (60–120, 10-RPM steps; `0` for `center`). |
+| `rpm`       | **Grinder** speed (60–120, 10-RPM steps; `0` allowed on `center` pours). Only the first pour's value reaches the machine — see note below. |
 | `flow_ml_s` | Flow rate in ml/s (3.0–3.5, 0.1 steps).                         |
 
 The app also exposes two **special, non-numeric temperature settings — `RT`
@@ -484,7 +484,7 @@ track real hardware.**
 | `grind`       | 1–80, or 0     | **Firm (per xBloom Studio specs).** The grinder has 80 micro-steps (~18.75 µm each); a *lower* number is *finer*. **`0` = no-grind** (brew pre-ground, grinder off) — *observed*, see note below. |
 | `temp_c` (pour) | 40–95 °C     | **Firm (per xBloom Studio specs).** Settable in 1 °C steps. The app also offers special non-numeric `RT` (room temp) and `BP` (boiling point) settings, outside this numeric range. |
 | `stage_temps` | 40–130 °C each | Machine **preheat/stage set-points** (default 110/90 °C) — NOT the pour temperature, so they legitimately exceed the 95 °C pour cap. Wider allowance around the default. |
-| `rpm`         | 0, or 60–120   | **Firm (per xBloom Studio specs).** 60–120 in 10-RPM steps; `0` (no agitation) is allowed only for `center` pours. |
+| `rpm`         | 0, or 60–120   | **Firm (per xBloom Studio specs).** Grinder speed, 60–120 in 10-RPM steps. `0` is accepted on `center` pours — a rule inherited from when this was read as pour-head rotation; see the note below. |
 | `flow_ml_s`   | 3.0–3.5 ml/s   | **Firm (per xBloom Studio specs).** Settable in 0.1 steps. |
 | `pause_s`     | 0–255          | The wire byte is `256 − seconds` (so 0–255 fits), but the **on-machine countdown caps near 99 s** — treat 0–99 as the practical range. |
 | `ml` (pour)   | 1–4000 ml      | Lower bound (≥1) is firm; a pour **over 127 ml is auto-split** by the protocol (not an error). The 4000 ceiling is just a sanity guard. |
@@ -515,37 +515,28 @@ On the wire it maps to a sentinel, not `0`:
 The pour count must be **≥2** (at least a bloom and a first pour), and if you give
 an optional `ratio`, Σ(pour ml) must equal `dose_g * ratio`.
 
-#### TODO — what does `rpm` actually control? (needs hardware runs)
+#### What `rpm` controls: the grinder (observed)
 
-`rpm` is documented above as the pour head's rotation speed, but that is **not
-established**, and some of the evidence points toward the *grinder* instead:
+`rpm` is the **grinder's speed**, not the pour head's rotation. This was long read as
+pour-head rotation, so the label, the `0`-for-`center` rule and older comments come from
+that reading. The evidence:
 
-- on the wire the value is carried **only on the first pour**; the machine zeroes it on
-  every later pour (verified against the vendor app's captures), and the cloud schema has
-  a single recipe-level `rpm` — both look like a per-brew setting, not a per-pour one;
-- yet the generator sends `0` on a `center` pour, and later `spiral` pours still spiral
-  with `rpm: 0`.
+- **Hardware run (observed, Nov 2026):** changing only `rpm` changed how the grinder ran.
+  The spiral pours did not change.
+- **On the wire** the value is carried **only on the first pour**: the machine zeroes it
+  on every later pour (verified against the vendor app's captures). The cloud schema also
+  has a single recipe-level `rpm`. One grind per brew means one grinder speed per brew.
+- Later `spiral` pours still spiral with `rpm: 0`, so the pour head was never driven by it.
 
-Nothing in the repo settles it, so the web UI and terminal guide call it "Pour RPM" on
-the strength of the code comments alone. Two runs would. Change **only** `rpm` (60 vs 120),
-keep dose, grind, beans and everything else identical, and repeat each setting **at least
-three times** — grind time also varies with the beans, so single runs prove nothing.
+Still open:
 
-1. **Grinder on** (`grind: 1–80`). Time the silent grinding gap from the `0x22` *starting*
-   status to the first `0x10` *brewing* status in the telemetry (about 20 s on the firmware
-   we've seen), and note the grinder's sound. If a higher `rpm` shortens the gap or changes
-   the sound, `rpm` drives the grinder.
-2. **Grinder off** (`grind: 0`, the `0x44` pours opcode — pre-ground coffee in the dripper).
-   There is no grinding, so any difference between 60 and 120 here must come from the pour
-   head: watch the spiral pours (rotation speed, how long a loop takes). If nothing changes
-   in *either* run, `rpm` may be a no-op for this firmware.
-
-Record the firmware version and the exact recipes with the results, and update this
-section and the `rpm` row above once it is known. Related, not yet tried: list every key of
-a few real cloud recipes (`XBloomCloud.fetch_public`) for a grinder-speed field the library
-doesn't map, and capture the vendor app's recipe editor to see whether it exposes one.
-Don't write into the unexplained constant bytes of `0xa6` / `0xa8` to find out — observe
-first.
+- **A hand-written recipe whose first pour is `center` with `rpm: 0`** gives the grinder a
+  speed of 0. The validator still accepts it, a leftover from the old reading. What the
+  firmware does then (falls back to a default, or something else) is untested. The
+  generator no longer does this: every pour it writes carries the chosen `rpm`, whatever
+  its pattern. Saved generator recipes from before this change are carried forward
+  when you next open them.
+- **With the grinder off** (`grind: 0`), `rpm` should do nothing. This is also untested.
 
 ---
 
@@ -662,7 +653,7 @@ Each pour becomes an **8-byte segment**:
 | 3      | `vib`      | Vibration bitfield (see below) — independent of `pat`. |
 | 4      | `negpause` | `(256 − pause_s) & 0xff` — post-pour pause.          |
 | 5      | `00`       | Constant zero.                                       |
-| 6      | `rpm`      | Agitation rotation speed (0 for center pours).       |
+| 6      | `rpm`      | Grinder speed; only the first pour's is kept.        |
 | 7      | `flow10`   | Flow rate in ml/s × 10 (3.0 → `0x1e`).               |
 
 **Pattern codes** (byte 2) — where the water lands:

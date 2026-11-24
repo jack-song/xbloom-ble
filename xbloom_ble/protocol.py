@@ -266,8 +266,9 @@ def build_41(pours: Iterable[Mapping], grind: int, tail: int = 0xA0) -> bytes:
     """
     segs: list[bytes] = []
     for i, p in enumerate(pours):
-        # RPM is carried ONLY on the first pour — the machine zeroes it on later
-        # pours (verified byte-for-byte against the vendor app's captures).
+        # RPM (the grinder's speed) is carried ONLY on the first pour — the machine
+        # zeroes it on later pours (verified byte-for-byte against the vendor app's
+        # captures). One grind per brew, so one speed per brew.
         segs.extend(_pour_segments({**p, "rpm": 0} if i else p))
     body = b"".join(segs)
     return bytes([0x01, len(body) & 0xFF]) + body + bytes([_grind_byte(grind), tail & 0xFF])

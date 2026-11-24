@@ -101,7 +101,7 @@ Each pour is an **8-byte record**:
 | 3 | vibration bitfield | bit 0 (`0x01`) shake **before** the pour, bit 1 (`0x02`) shake **after**. Independent of byte 2 — see note below |
 | 4 | pause | **`(256 − seconds) & 0xFF`** |
 | 5 | — | constant `0x00` |
-| 6 | rpm | agitation rotation speed (`0` for center) |
+| 6 | rpm | grinder speed — carried on the first pour only (see README) |
 | 7 | flow | **ml/s × 10** |
 
 Two encodings worth calling out because they're non-obvious and only fall out of the diff:

@@ -130,8 +130,8 @@ PARAMS: tuple[Param, ...] = (
     Param("pause", "--pause", "pause", int, 15, "after the first main pour; +4 s each after",
           " s",
           lo=0, hi=120, step=5),
-    Param("rpm", "--rpm", "pour rpm", int, 60, "pour head rotation on spiral pours; center uses 0",
-          lo=0, hi=120, step=5),
+    Param("rpm", "--rpm", "grinder rpm", int, 60,
+          "grinder speed 60-120; sent once, on the first pour", lo=60, hi=120, step=10),
     Param("flow", "--flow", "flow", float, 3.5, "3.0-3.5", " ml/s", lo=1.5, hi=5.0, step=0.1),
     Param("grind", "--grind", "grind", int, 0, "0 = pre-ground, else 1-80", lo=0, hi=80, step=1),
 )
@@ -247,9 +247,10 @@ def build_pours(p: BrewParams) -> list[dict[str, Any]]:
         "temp_c": pour_temps(p)[i],
         "pattern": pattern,
         "pause_s": pour_pauses(p)[i],
-        # rpm is the holder's rotation speed, meaningful only for a pattern that
-        # traces a circle; a center pour must send 0.
-        "rpm": 0 if pattern == "center" else int(p.rpm),
+        # rpm is the grinder's speed, not the pour head's: only the first pour's value
+        # reaches the machine (protocol.build_41 zeroes the rest). Every pour carries
+        # it regardless of pattern, so a center bloom doesn't hand the grinder 0.
+        "rpm": int(p.rpm),
         "flow_ml_s": float(p.flow),
         # "No agitation or vibrations": both byte-3 bits stay clear.
         "agitation": False,
@@ -350,11 +351,13 @@ def legacy_params(text: str) -> BrewParams | None:
     Such a file carries its ``# params:`` line but its pours no longer re-render from it
     (the rules have changed since: the bloom used to share ``temp`` and every pour
     stepped down 1 C; every main pour used to wait the same ``pause``, which is now the
-    first of a growing series of waits). Rather than strand those recipes read-only, they
-    are carried forward: everything the line says is kept, and the two temperatures the
-    new model separates are taken from the file's own pours — the bloom's, and the first
-    main pour's. What does not carry over (the old last-pour step, or the old flat
-    pause, which becomes the first wait) is simply regenerated under the current rules.
+    first of a growing series of waits; a center pour used to send rpm 0, back when rpm
+    was read as the pour head's rotation rather than the grinder's speed). Rather than
+    strand those recipes read-only, they are carried forward: everything the line says
+    is kept, and the two temperatures the new model separates are taken from the file's
+    own pours — the bloom's, and the first main pour's. What does not carry over (the
+    old last-pour step, the old flat pause, which becomes the first wait, or the old
+    rpm 0 on center pours) is simply regenerated under the current rules.
     Only files that have the line are eligible; a recipe the generator never wrote is not
     reshaped into one.
     """

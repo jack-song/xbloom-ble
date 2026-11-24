@@ -113,6 +113,22 @@ def test_migrating_a_flat_pause_recipe_keeps_its_pause_as_the_first_wait(tmp_pat
     assert [x["pause_s"] for x in brewgen.build_pours(got)] == [50, 20, 24, 28]
 
 
+def test_migrating_a_center_rpm_zero_recipe_sends_its_rpm_everywhere(tmp_path):
+    """A recipe saved when center pours sent rpm 0 no longer re-renders; migration keeps
+    its rpm and now puts it on every pour, so a center bloom gives the grinder a speed."""
+    text = brewgen.to_yaml(BrewParams(pattern="center", rpm=80))
+    text = text.replace("pattern: center, pause_s", "pattern: center, PAUSE")
+    text = "\n".join(ln.replace("rpm: 80", "rpm: 0") if "PAUSE" in ln else ln
+                     for ln in text.splitlines()).replace("PAUSE", "pause_s") + "\n"
+    assert "rpm: 0" in text and brewgen.params_from_yaml(text) is None
+    path = tmp_path / "2026-01-01-center.yaml"
+    path.write_text(text, encoding="utf-8")
+    assert brewgen.migrate_cached(path) is True
+    got = brewgen.params_from_yaml(path.read_text(encoding="utf-8"))
+    assert got is not None and got.rpm == 80
+    assert [x["rpm"] for x in brewgen.build_pours(got)] == [80, 80, 80, 80]
+
+
 def test_up_to_five_main_pours_plan_and_validate():
     for n in (2, 3, 4, 5):
         p = brewgen.plan(BrewParams(pours=n))
@@ -173,14 +189,15 @@ def test_migration_leaves_a_recipe_the_generator_never_wrote_alone(tmp_path):
 
 
 def test_pour_patterns_and_rpm():
-    """The dominant pattern covers the bloom and every main pour but the first; a center
-    pour must send rpm 0, since rpm is the holder's rotation speed."""
+    """The dominant pattern covers the bloom and every main pour but the first. rpm is
+    the grinder's speed and only the first pour's reaches the machine, so every pour
+    carries it — a center bloom must not hand the grinder 0."""
     p = brewgen.plan(BrewParams(pattern="spiral", pours=3))
     assert [x["pattern"] for x in p.pours] == ["spiral", "center", "spiral", "spiral"]
-    assert [x["rpm"] for x in p.pours] == [60, 0, 60, 60]
-    c = brewgen.plan(BrewParams(pattern="center", pours=2))
+    assert [x["rpm"] for x in p.pours] == [60, 60, 60, 60]
+    c = brewgen.plan(BrewParams(pattern="center", pours=2, rpm=90))
     assert [x["pattern"] for x in c.pours] == ["center", "spiral", "center"]
-    assert [x["rpm"] for x in c.pours] == [0, 60, 0]
+    assert [x["rpm"] for x in c.pours] == [90, 90, 90]
 
 
 def test_no_pour_ever_vibrates_or_agitates():
