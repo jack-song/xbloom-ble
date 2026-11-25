@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import importlib.resources
 import json
+import os
 import subprocess
 import threading
 import time
@@ -126,9 +127,12 @@ class Runner:
             run = Run(id=self._next_id, argv=argv, recipe=name, file=path.name,
                       started_brew=start, started_at=time.time(), details=details or {})
             self._next_id += 1
+            # Unbuffered: piped stdout is otherwise block-buffered, so the brew's own
+            # progress lines would arrive in late chunks, out of order with its logging
+            # (which is unbuffered) — and the page reads its live status off those lines.
             proc = subprocess.Popen(
                 argv, cwd=str(cwd), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                text=True, bufsize=1,
+                text=True, bufsize=1, env={**os.environ, "PYTHONUNBUFFERED": "1"},
             )
             run.proc = proc
             self._run = run

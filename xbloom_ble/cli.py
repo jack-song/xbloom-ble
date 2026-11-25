@@ -57,6 +57,10 @@ def _setup_logging(verbose: bool, debug: bool = False) -> None:
         stream=sys.stderr,
     )
     _silence_ble_stack()
+    # The live-scale stream is ~10 frames a second; on the console it drowns everything
+    # else. It still reaches the --debug file log below, which is where it is useful.
+    for handler in logging.getLogger().handlers:
+        handler.addFilter(lambda rec: not rec.getMessage().endswith("[scale]"))
     if debug:
         # DEBUG for OUR logger only (never the BLE stack), teed to a timestamped file
         # so a session's full frame chatter can be captured and shared for diagnosis.
@@ -129,15 +133,19 @@ async def _cmd_brew(args) -> int:
 
     # 3. Connect + load.
     events: list[dict] = []
-    # Brew time runs from the first pour of water (the first "brewing" status — the
-    # grind before it is silent) to the end-of-brew status, as the app's timer does.
+    # Brew time runs from the first pour of water to the end-of-brew status the machine
+    # pushes (0x24 "ready", the beep). The first pour is the first live-scale water
+    # reading above zero; the "brewing" status is only a fallback, because some firmware
+    # sends it right at commit, before the grind.
     pour_span: dict[str, float] = {}
 
     def _record(ev: StatusEvent) -> None:
         now = time.time()
+        if ev.water_g is not None and ev.water_g > 0.5 and "water" not in pour_span:
+            pour_span["water"] = now
         if ev.state_name == "brewing":
-            pour_span.setdefault("start", now)
-        elif ev.is_terminal and "start" in pour_span:
+            pour_span.setdefault("status", now)
+        elif ev.is_terminal and ("water" in pour_span or "status" in pour_span):
             pour_span.setdefault("end", now)
         entry = {"t": round(now, 3), "state": ev.state_name}
         if ev.water_g is not None:
@@ -145,6 +153,8 @@ async def _cmd_brew(args) -> int:
         if ev.coffee_g is not None:
             entry["coffee_g"] = ev.coffee_g
         events.append(entry)
+        if ev.state_name == "scale":        # ~10/s while pouring: kept in the JSON log only
+            return
         line = f"  [{ev.state_name}]"
         extras = []
         if ev.water_g is not None:
@@ -210,9 +220,10 @@ async def _cmd_brew(args) -> int:
 def _print_brew_time(span: dict[str, float]) -> None:
     """The run's last line: how long the brew took from its first pour of water. Nothing
     when no water was poured (load-only, refused, or the link dropped before the pour)."""
-    if "start" not in span:
+    start = span.get("water", span.get("status"))
+    if start is None:
         return
-    secs = round(span.get("end", time.time()) - span["start"])
+    secs = round(span.get("end", time.time()) - start)
     unfinished = "" if "end" in span else ", still running when the log stopped"
     print(f"Brew time: {secs // 60}:{secs % 60:02d} (from first pour{unfinished})")
 

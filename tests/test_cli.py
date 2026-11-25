@@ -277,5 +277,5 @@ def test_brew_time_is_measured_from_the_first_pour(capsys):
     from xbloom_ble.cli import _print_brew_time
     _print_brew_time({})                                  # no pour: no line at all
     assert capsys.readouterr().out == ""
-    _print_brew_time({"start": 100.0, "end": 261.4})
+    _print_brew_time({"status": 90.0, "water": 100.0, "end": 261.4})
     assert capsys.readouterr().out == "Brew time: 2:41 (from first pour)\n"
