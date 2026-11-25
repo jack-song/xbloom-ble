@@ -155,14 +155,13 @@
   /* The input fills the whole value cell, edge to edge and top to bottom, and the label is
      a real <label> for it, so a click anywhere on the row lands in the input. The unit is drawn over the input, at the end of what it holds, and lets
      every click fall through to the input underneath. */
-  .p .val { position: relative; min-width: 0; display: flex; font: 700 20px/1.2 var(--mono);
+  /* Every value at one size, a step up from its label. */
+  .p .val { position: relative; min-width: 0; display: flex; font: 700 18px/1.2 var(--mono);
             font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
-  .hero .val { font-size: 30px; }
   .p .unit-at { position: absolute; top: 11px; pointer-events: none; white-space: nowrap;
                 color: transparent; }          /* a strut at the input's font, for the baseline */
   .p .unit { font: 600 14px var(--sans); letter-spacing: 0; margin-left: 7px;
              color: var(--dim); opacity: 0.85; }
-  .hero .unit { color: var(--hue); }
   .p input, .p select {
     flex: 1; min-width: 0; border: 0; background: transparent; color: var(--ink);
     padding: 11px 38px 12px 0; font: inherit; letter-spacing: inherit; -moz-appearance: textfield;
@@ -182,11 +181,12 @@
   }
   .p .revert:hover { background: var(--wash); }
 
-  /* Sections: grind, main, bloom, pours — each in its own colour, a bar down its left
-     edge, a little space between. No headings; the colour and the gap say it. Every
-     label in a section wears the section's hue. */
-  .sec { border-left: 3px solid var(--hue); padding-left: 0; }
-  .sec + .sec { margin-top: 14px; }
+  /* Sections: grind, main, bloom, pours — each on a faint wash of its own colour, with
+     room between them. No headings; the colour and the gap say it. Every label in a
+     section wears the section's hue. */
+  .sec { background: color-mix(in srgb, var(--hue) 8%, transparent); border-radius: var(--r);
+         padding: 4px 0; }
+  .sec + .sec { margin-top: 24px; }
   .sec .p .label { color: var(--hue); }
 
   /* Grinder on/off: a switch filling the value cell. Off hides grind size and RPM. */
@@ -229,9 +229,6 @@
   .fields .p.on, .fields .p.on:hover, .fields .p.on:focus-within {
     background: var(--tint); color: var(--hue); }
   .p.on .label, .p.on input, .p.on select { color: var(--hue); }
-
-  /* the four headline cards are bigger and always wear their hue */
-  .hero .label, .hero input, .hero select { color: var(--hue); }
 
   /* --- the summary: what the parameters add up to, and the pours they make ---- */
   .side { display: flex; flex-direction: column; min-height: 100%; }
@@ -285,7 +282,7 @@
   /* While a run is live, BREW gives way to what the machine is doing, in the same box.
      The dots hang off the end of the text, outside its box, so the words stay centred
      and still while the dots come and go. */
-  .brewstatus { padding: 22px 28px; border-radius: var(--r); background: var(--wash);
+  .brewstatus { padding: 22px 28px;
                 font: 800 20px/1 var(--sans); letter-spacing: 0.12em; text-align: center;
                 text-transform: uppercase; color: var(--accent); }
   .brewstatus[hidden] { display: none; }
@@ -354,10 +351,12 @@
   .brew-row.off { opacity: 0.5; cursor: not-allowed; }
   .brew-row .nm { font: 600 14px/1.3 var(--sans); overflow: hidden; text-overflow: ellipsis;
                   white-space: nowrap; }
+  /* Under the name: the dose on the left, the grinder on the right. */
   .brew-row .sum { color: var(--dim); font-family: var(--mono); font-size: 11.5px;
                    grid-column: 1 / -1; }
-  .brew-row .age { color: var(--dim); font-size: 11.5px; white-space: nowrap; }
-  .brew-row.current .age, .brew-row.current .sum { color: inherit; opacity: 0.75; }
+  .brew-row .grd { color: var(--dim); font-family: var(--mono); font-size: 11.5px;
+                   text-align: right; white-space: nowrap; }
+  .brew-row.current .sum, .brew-row.current .grd { color: inherit; opacity: 0.75; }
   /* The Custom Brew card: just its title, dead centre. The actions that
      belong to it (Reset, Save New Recipe) are on the brew panel, above BREW. */
   .brew-row.custom { display: flex; flex-direction: column; align-items: center;
@@ -552,12 +551,10 @@ let pollTimer = null, logSince = 0;
 // its own colour (the tokens are the old headline hues, so every tone has them).
 const SECTIONS = [
   {id: 'grind', hue: 'dose', keys: ['grind', 'rpm']},
-  {id: 'main', hue: 'temp', keys: ['dose', 'ratio', 'temp', 'pours', 'pause', 'flow']},
+  {id: 'main', hue: 'temp', keys: ['dose', 'ratio', 'temp']},
   {id: 'bloom', hue: 'bloom', keys: ['bloom_time', 'bloom_temp']},
-  {id: 'pours', hue: 'ratio', keys: ['patterns']},
+  {id: 'pours', hue: 'ratio', keys: ['pours', 'pause', 'flow', 'patterns']},
 ];
-// The values that decide how the cup tastes are drawn bigger.
-const HERO = new Set(['dose', 'ratio', 'temp', 'bloom_time', 'bloom_temp']);
 // Turning the grinder back on restores the last grind size, or this one.
 const GRIND_ON_DEFAULT = 55;
 let lastGrind = GRIND_ON_DEFAULT;
@@ -584,7 +581,7 @@ function stale(r, data) {
 // --- parameters ------------------------------------------------------------
 function paramCard(row) {
   const el = document.createElement('div');
-  el.className = 'p' + (HERO.has(row.key) ? ' hero' : '') + (row.is_default ? '' : ' on');
+  el.className = 'p' + (row.is_default ? '' : ' on');
 
   const label = document.createElement('label');
   label.className = 'label';
@@ -664,16 +661,16 @@ function paramCard(row) {
 // edge, or one spot in the centre.
 const SPIRAL_D = (() => {
   const pts = [];
-  for (let t = 0; t <= 6 * Math.PI; t += 0.2) {
-    const r = 0.5 + t * 0.47;
+  for (let t = 0; t <= 4 * Math.PI; t += 0.2) {      // two turns, out to r = 9
+    const r = 0.5 + t * 0.68;
     pts.push(`${(12 + r * Math.cos(t)).toFixed(2)} ${(12 + r * Math.sin(t)).toFixed(2)}`);
   }
   return 'M' + pts.join(' L');
 })();
 const PATTERN_ICONS = {
   spiral: `<path d="${SPIRAL_D}" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>`,
-  ring: '<circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/>',
-  center: '<circle cx="12" cy="12" r="3.6" fill="currentColor"/>',
+  ring: '<circle cx="12" cy="12" r="6.5" fill="none" stroke="currentColor" stroke-width="2.6"/>',
+  center: '<circle cx="12" cy="12" r="7.2" fill="currentColor"/>',
 };
 const patIcon = (name) =>
   `<svg viewBox="0 0 24 24" aria-hidden="true">${PATTERN_ICONS[name] || ''}</svg>`;
@@ -1207,9 +1204,15 @@ async function loadRecent() {
   // clicked it.
   const box = $('recent');
   const have = new Map([...box.children].map((el) => [el.dataset.file, el]));
-  const wanted = [{file: '', custom: true}, ...brews.map((b) => ({
-    file: b.file, name: b.name || b.stem, sum: b.summary, off: !b.readable, color: b.color,
-    age: (b.brewed ? 'brewed ' : 'saved ') + b.age}))];
+  // The summary is brewgen.describe()'s fixed "10 g  1:17  170 ml  4 pours  grind 55";
+  // a card shows just its dose and its grinder. An unreadable one shows why instead.
+  const wanted = [{file: '', custom: true}, ...brews.map((b) => {
+    const dose = b.readable && /^([\d.]+) g/.exec(b.summary);
+    const grind = b.readable && /(pre-ground|grind \d+)$/.exec(b.summary);
+    return {file: b.file, name: b.name || b.stem, off: !b.readable, color: b.color,
+            dose: dose ? dose[1] + 'g' : '', grind: grind ? grind[1] : '',
+            sum: b.readable ? '' : b.summary};
+  })];
 
   const make = (file) => {
     const row = document.createElement('div');
@@ -1234,8 +1237,10 @@ async function loadRecent() {
     row.tabIndex = w.off ? -1 : 0;
     row.innerHTML = w.custom
       ? '<div class="nm">Custom Brew</div>'
-      : `<div class="nm">${esc(w.name)}</div><div class="age">${esc(w.age)}</div>
-         <div class="sum">${esc(w.sum)}</div>`;
+      : `<div class="nm" style="grid-column: 1 / -1">${esc(w.name)}</div>` +
+        (w.sum ? `<div class="sum">${esc(w.sum)}</div>`
+               : `<div class="sum" style="grid-column: 1">${esc(w.dose)}</div>` +
+                 `<div class="grd">${esc(w.grind)}</div>`);
     if (box.children[i] !== row) box.insertBefore(row, box.children[i] || null);
   });
   have.forEach((el) => el.remove());                 // cards whose recipe is gone
@@ -1246,6 +1251,7 @@ async function loadRecent() {
 let currentRun = null;
 const isRunning = () => currentRun && !currentRun.done;
 let runPhase = 'Connecting';   // what the live run is doing, read off its log
+let runBrewTime = '';          // "3:23", from the log's closing "Brew time:" line
 
 /** One log line → the phase it announces, or null. The log is `xbloom brew`'s own
  *  output: its progress messages, then a `[state]` line per machine status. */
@@ -1271,7 +1277,7 @@ function phaseOf(line) {
 async function go(body) {
   try {
     const d = await POST('/api/start', body);
-    logSince = 0; $('run-log').textContent = ''; runPhase = 'Connecting';
+    logSince = 0; $('run-log').textContent = ''; runPhase = 'Connecting'; runBrewTime = '';
     showRun(d.run);
     poll();
     await loadRecent();       // a saved recipe that was brewed moves to the top
@@ -1292,7 +1298,8 @@ function renderRun(run) {
   const card = $('run-card');
   const d = run.details || {};
   const [cls, state] = !run.done ? ['live', runPhase.toLowerCase() + '\u2026']
-    : run.returncode === 0 ? ['ok', run.started_brew ? 'finished' : 'loaded']
+    : run.returncode === 0 ? ['ok', !run.started_brew ? 'loaded'
+        : 'finished' + (runBrewTime ? ` \u2013 ${runBrewTime} total brew time` : '')]
     : ['bad', `failed (exit ${run.returncode})`];
   const pours = (d.pours || []).map((p) =>
     `<tr><td>${esc(p.label)}</td><td class="n">${p.ml}</td><td class="n">${p.temp_c}</td>` +
@@ -1322,8 +1329,12 @@ function syncBusy() {
 async function poll() {
   const d = await (await fetch('/api/run?since=' + logSince)).json();
   if (!d.run) return;
-  if (logSince === 0) runPhase = 'Connecting';
-  for (const line of d.run.lines) runPhase = phaseOf(line) || runPhase;
+  if (logSince === 0) { runPhase = 'Connecting'; runBrewTime = ''; }
+  for (const line of d.run.lines) {
+    runPhase = phaseOf(line) || runPhase;
+    const t = /^Brew time: (\d+:\d\d)/.exec(line);
+    if (t) runBrewTime = t[1];
+  }
   if (d.run.lines.length) {
     const log = $('run-log');
     const atBottom = log.scrollTop + log.clientHeight >= log.scrollHeight - 24;

@@ -272,10 +272,10 @@ xbloom web --port 9000 --no-open --address AA:BB:CC:DD:EE:FF
 The page shows, side by side:
 
 - **the parameters**, in four colour-coded sections — **grind** (a grinder on/off
-  switch; on shows grind size and grinder RPM), **main** (dose, ratio, temp, main pours,
-  pause, flow), **bloom** (bloom time and temp) and **pours** (one icon dropdown per
-  pour, bloom first: spiral, ring or center; all spiral by default) — each tinted when
-  changed from its default;
+  switch; on shows grind size and grinder RPM), **main** (dose, ratio, temp), **bloom**
+  (bloom time and temp) and **pours** (main pours, pause, flow, and one icon dropdown
+  per pour, bloom first: spiral, ring or center; all spiral by default) — each tinted
+  when changed from its default;
 - **the brew they produce** — the derived name, the headline numbers (dose / ratio /
   total water / grind), and a row per pour with its volume (bar-scaled so the shape of
   the brew is visible at a glance), temperature, pattern, rpm and the pause after it;
@@ -283,7 +283,8 @@ The page shows, side by side:
   keystroke, plus a warning if any pour exceeds the 127 ml the phone app ever sends;
 - **the live run**, in a column of its own — the recipe the machine was handed (name,
   summary and every pour, read from the file that ran) with the `xbloom brew` output
-  streaming in under it, ending with the brew time from the first pour of water. While
+  streaming in under it, ending with the brew time from the first pour of water (also
+  shown on the card: "finished – 3:23 total brew time"). While
   it runs, the BREW button is replaced by what the machine is doing (connecting,
   loading, grinding, brewing…);
 - **recent brews**, re-loadable *as they are on disk* (no regeneration, so a repeat is
