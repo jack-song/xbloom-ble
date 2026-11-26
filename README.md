@@ -273,8 +273,9 @@ The page shows, side by side:
 
 - **the parameters**, in four colour-coded sections — **grind** (a grinder on/off
   switch; on shows grind size and grinder RPM), **main** (dose, ratio, temp), **bloom**
-  (bloom time and temp) and **pours** (main pours, pause, flow, and one icon dropdown
-  per pour, bloom first: spiral, ring or center; all spiral by default) — each tinted
+  (bloom time and temp) and **pours** (one icon dropdown per pour, bloom first: spiral,
+  ring or center, all spiral by default — **+** adds a pour, the × on a pour's number
+  removes it — then pause and flow) — each tinted
   when changed from its default;
 - **the brew they produce** — the derived name, the headline numbers (dose / ratio /
   total water / grind), and a row per pour with its volume (bar-scaled so the shape of

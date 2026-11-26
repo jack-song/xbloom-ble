@@ -185,7 +185,7 @@
      room between them. No headings; the colour and the gap say it. Every label in a
      section wears the section's hue. */
   .sec { background: color-mix(in srgb, var(--hue) 8%, transparent); border-radius: var(--r);
-         padding: 4px 0; }
+         padding: 0; overflow: hidden; }
   .sec + .sec { margin-top: 24px; }
   .sec .p .label { color: var(--hue); }
 
@@ -210,10 +210,20 @@
   .pats { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 34px 8px 8px; }
   .pat { position: relative; display: flex; flex-direction: column; align-items: center;
          gap: 2px; }
-  .pat .cap { font: 600 11px var(--sans); color: var(--hue); letter-spacing: .04em; }
-  .pat > button { padding: 6px; background: transparent; color: var(--ink); line-height: 0; }
-  .pat > button:hover { background: var(--wash); filter: none; }
-  .pat > button.odd { color: var(--hue); background: var(--tint); }
+  .pat .cap { font: 600 11px/14px var(--sans); color: var(--hue); letter-spacing: .04em;
+              height: 14px; }
+  /* A pour's number turns into a × on hover: click it to remove that pour. */
+  .pat .cap.drop { background: none; border: 0; padding: 0 4px; cursor: pointer;
+                   border-radius: 7px; position: relative; }
+  .pat .cap.drop .x { display: none; }
+  .pat:hover .cap.drop .n, .pat .cap.drop:focus-visible .n { display: none; }
+  .pat:hover .cap.drop .x, .pat .cap.drop:focus-visible .x { display: inline; font-size: 14px; }
+  .pat .cap.drop:hover { background: var(--hue); color: var(--panel); filter: none; }
+  .pat > button.add { color: var(--dim); }
+  .pat > button.add:hover { color: var(--hue); }
+  .pat > button.ico { padding: 6px; background: transparent; color: var(--ink); line-height: 0; }
+  .pat > button.ico:hover { background: var(--wash); filter: none; }
+  .pat > button.ico.odd { color: var(--hue); background: var(--tint); }
   .pat svg { width: 26px; height: 26px; display: block; }
   /* Fixed, and placed under its button by script: the brew panel clips its overflow. */
   .pat-menu { position: fixed; z-index: 5; background: var(--panel); color: var(--ink);
@@ -553,8 +563,11 @@ const SECTIONS = [
   {id: 'grind', hue: 'dose', keys: ['grind', 'rpm']},
   {id: 'main', hue: 'temp', keys: ['dose', 'ratio', 'temp']},
   {id: 'bloom', hue: 'bloom', keys: ['bloom_time', 'bloom_temp']},
-  {id: 'pours', hue: 'ratio', keys: ['pours', 'pause', 'flow', 'patterns']},
+  {id: 'pours', hue: 'ratio', keys: ['patterns', 'pause', 'flow']},
 ];
+// Set inside another card rather than with one of their own: the pour count is the
+// length of the pattern row (+ adds a pour, the × on a pour's number removes it).
+const FOLDED = new Set(['pours']);
 // Turning the grinder back on restores the last grind size, or this one.
 const GRIND_ON_DEFAULT = 55;
 let lastGrind = GRIND_ON_DEFAULT;
@@ -676,21 +689,42 @@ const patIcon = (name) =>
   `<svg viewBox="0 0 24 24" aria-hidden="true">${PATTERN_ICONS[name] || ''}</svg>`;
 let openPat = null;          // index of the pour whose menu is open, or null
 
-function patternsCard(row) {
+/** Change the pour count from the pattern row: drop main pour `drop` (1-based), or add one
+ *  (a spiral) at the end. The patterns list is always one longer than the pours. */
+function setPours(list, n, drop) {
+  const next = list.slice();
+  if (drop) next.splice(drop, 1); else next.push('spiral');
+  params.pours = n;
+  params.patterns = next.join(',');
+  openPat = null;
+  refresh();
+}
+
+function patternsCard(row, poursRow) {
   const el = document.createElement('div');
   el.className = 'p pats-row' + (row.is_default ? '' : ' on');
   el.style.display = 'block';
   const list = String(row.value).split(',');
   const wrap = document.createElement('div');
   wrap.className = 'pats';
+  const counts = ((poursRow && poursRow.choices) || []).map(Number);
+  const pours = list.length - 1;
+  const canDrop = counts.includes(pours - 1), canAdd = counts.includes(pours + 1);
   list.forEach((name, i) => {
     const cell = document.createElement('div');
     cell.className = 'pat';
     const cap = i === 0 ? 'Bloom' : String(i);
-    cell.innerHTML = `<button type="button" class="${name === 'spiral' ? '' : 'odd'}" ` +
-      `title="${esc(cap)}: ${esc(name)}" aria-haspopup="menu">${patIcon(name)}</button>` +
-      `<span class="cap">${esc(cap)}</span>`;
-    const btn = cell.querySelector('button');
+    const capEl = i > 0 && canDrop
+      ? `<button type="button" class="cap drop" title="Remove pour ${i}" ` +
+        `aria-label="Remove pour ${i}"><span class="n">${i}</span><span class="x">\u00d7</span></button>`
+      : `<span class="cap">${esc(cap)}</span>`;
+    cell.innerHTML = `<button type="button" class="ico ${name === 'spiral' ? '' : 'odd'}" ` +
+      `title="${esc(cap)}: ${esc(name)}" aria-haspopup="menu">${patIcon(name)}</button>` + capEl;
+    const drop = cell.querySelector('.drop');
+    if (drop) drop.addEventListener('click', (e) => {
+      e.stopPropagation(); setPours(list, pours - 1, i);
+    });
+    const btn = cell.querySelector('.ico');
     btn.id = 'pat-' + i;
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -721,6 +755,18 @@ function patternsCard(row) {
     }
     wrap.appendChild(cell);
   });
+  if (canAdd) {
+    const add = document.createElement('div');
+    add.className = 'pat';
+    add.innerHTML = '<button type="button" class="ico add" title="Add a pour" ' +
+      'aria-label="Add a pour"><svg viewBox="0 0 24 24" aria-hidden="true">' +
+      '<path d="M12 6v12M6 12h12" fill="none" stroke="currentColor" stroke-width="2" ' +
+      'stroke-linecap="round"/></svg></button><span class="cap">&nbsp;</span>';
+    add.querySelector('button').addEventListener('click', (e) => {
+      e.stopPropagation(); setPours(list, pours + 1, 0);
+    });
+    wrap.appendChild(add);
+  }
   el.appendChild(wrap);
   if (!row.is_default) {
     const revert = document.createElement('button');
@@ -768,7 +814,7 @@ function renderParams(rows) {
   const focused = document.activeElement && document.activeElement.id;
   const caret = focused && document.activeElement.selectionStart;
   const byKey = Object.fromEntries(rows.map((r) => [r.key, r]));
-  const placed = new Set(SECTIONS.flatMap((s) => s.keys));
+  const placed = new Set([...SECTIONS.flatMap((s) => s.keys), ...FOLDED]);
   const box = $('fields');
   box.innerHTML = '';
   const grinding = Number(params.grind) > 0;
@@ -785,13 +831,13 @@ function renderParams(rows) {
       const row = byKey[k];
       if (!row) continue;
       if (sec.id === 'grind' && !grinding) continue;
-      el.appendChild(k === 'patterns' ? patternsCard(row) : paramCard(row));
+      el.appendChild(k === 'patterns' ? patternsCard(row, byKey.pours) : paramCard(row));
     }
     box.appendChild(el);
   }
   const menu = box.querySelector('.pat-menu');
   if (menu) {
-    const r = menu.parentElement.querySelector('button').getBoundingClientRect();
+    const r = menu.parentElement.querySelector('.ico').getBoundingClientRect();
     menu.style.top = `${r.bottom + 4}px`;
     menu.style.left = `${Math.max(8, r.left + r.width / 2 - menu.offsetWidth / 2)}px`;
   }
