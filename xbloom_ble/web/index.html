@@ -676,20 +676,19 @@ function paramCard(row) {
 // Icons for where each pour's water lands: a spiral out from the middle, a ring at the
 // edge, or one spot in the centre.
 const SPIRAL_D = (() => {
-  // A squared spiral: six straight runs growing outward from the centre, so five
-  // well-rounded 90-degree turns and a short tail. Runs across are a little shorter than
-  // runs down, so it is taller than wide: centred on the box, 12 x 10.
-  const sx = 4, sy = 5, rr = 2.4, dirs = [[1, 0], [0, 1], [-1, 0], [0, -1]];
-  const runs = [1, 1, 2, 2, 3, 1.5];
-  const pts = [[12 - 0.5 * sx, 12]];
-  runs.forEach((n, k) => {
-    const [x, y] = pts[k], [dx, dy] = dirs[k % 4];
-    pts.push([x + dx * n * sx, y + dy * n * sy]);
-  });
+  // A squared spiral, as its corner points: a short inner head (set a little left of
+  // centre), then runs growing outward with five well-rounded 90-degree turns, and a
+  // short tail. Spans 6..18 across, 7..17 down.
+  const rr = 2.4;
+  const pts = [[9.4, 12], [12.2, 12], [12.2, 17], [6, 17], [6, 7], [18, 7], [18, 15.25]];
   const f = (x, y) => `${x.toFixed(2)} ${y.toFixed(2)}`;
+  const unit = (a, b) => {
+    const dx = b[0] - a[0], dy = b[1] - a[1], n = Math.hypot(dx, dy);
+    return [dx / n, dy / n];
+  };
   let d = 'M' + f(...pts[0]);
   for (let k = 1; k < pts.length - 1; k++) {
-    const [x, y] = pts[k], [ix, iy] = dirs[(k - 1) % 4], [ox, oy] = dirs[k % 4];
+    const [x, y] = pts[k], [ix, iy] = unit(pts[k - 1], pts[k]), [ox, oy] = unit(pts[k], pts[k + 1]);
     d += ` L${f(x - ix * rr, y - iy * rr)} Q${f(x, y)} ${f(x + ox * rr, y + oy * rr)}`;
   }
   return d + ' L' + f(...pts[pts.length - 1]);
