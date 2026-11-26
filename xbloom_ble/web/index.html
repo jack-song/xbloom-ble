@@ -677,13 +677,14 @@ function paramCard(row) {
 // edge, or one spot in the centre.
 const SPIRAL_D = (() => {
   // A squared spiral: six straight runs growing outward from the centre, so five
-  // well-rounded 90-degree turns and a short tail. Centred on the box, about 15 x 12.5.
-  const s = 5, rr = 2.4, dirs = [[1, 0], [0, 1], [-1, 0], [0, -1]];
-  const runs = [1, 1, 2, 2, 3, 2.5];
-  const pts = [[12 - 0.5 * s, 12 - 0.25 * s]];
+  // well-rounded 90-degree turns and a short tail. Runs across are a little shorter than
+  // runs down, so it is taller than wide: centred on the box, 12 x 10.
+  const sx = 4, sy = 5, rr = 2.4, dirs = [[1, 0], [0, 1], [-1, 0], [0, -1]];
+  const runs = [1, 1, 2, 2, 3, 1.5];
+  const pts = [[12 - 0.5 * sx, 12]];
   runs.forEach((n, k) => {
     const [x, y] = pts[k], [dx, dy] = dirs[k % 4];
-    pts.push([x + dx * n * s, y + dy * n * s]);
+    pts.push([x + dx * n * sx, y + dy * n * sy]);
   });
   const f = (x, y) => `${x.toFixed(2)} ${y.toFixed(2)}`;
   let d = 'M' + f(...pts[0]);
