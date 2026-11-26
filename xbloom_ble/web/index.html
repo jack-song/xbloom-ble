@@ -661,16 +661,16 @@ function paramCard(row) {
 // edge, or one spot in the centre.
 const SPIRAL_D = (() => {
   const pts = [];
-  for (let t = 0; t <= 4 * Math.PI; t += 0.2) {      // two turns, out to r = 9
-    const r = 0.5 + t * 0.68;
+  for (let t = 0; t <= 3 * Math.PI; t += 0.2) {      // 1.5 turns, out to r = 9
+    const r = 0.5 + t * 0.9;
     pts.push(`${(12 + r * Math.cos(t)).toFixed(2)} ${(12 + r * Math.sin(t)).toFixed(2)}`);
   }
   return 'M' + pts.join(' L');
 })();
 const PATTERN_ICONS = {
-  spiral: `<path d="${SPIRAL_D}" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>`,
-  ring: '<circle cx="12" cy="12" r="6.5" fill="none" stroke="currentColor" stroke-width="3.2"/>',
-  center: '<circle cx="12" cy="12" r="5.6" fill="currentColor"/>',
+  spiral: `<path d="${SPIRAL_D}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>`,
+  ring: '<circle cx="12" cy="12" r="5.8" fill="none" stroke="currentColor" stroke-width="3.2"/>',
+  center: '<circle cx="12" cy="12" r="5.3" fill="currentColor"/>',
 };
 const patIcon = (name) =>
   `<svg viewBox="0 0 24 24" aria-hidden="true">${PATTERN_ICONS[name] || ''}</svg>`;
