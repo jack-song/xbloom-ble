@@ -226,7 +226,6 @@
   .pat > button.add:hover { color: var(--hue); }
   .pat > button.ico { padding: 6px; background: transparent; color: var(--ink); line-height: 0; }
   .pat > button.ico:hover { background: var(--wash); filter: none; }
-  .pat > button.ico.odd { color: var(--hue); background: var(--tint); }
   .pat svg { width: 26px; height: 26px; display: block; }
   /* Fixed, and placed under its button by script: the brew panel clips its overflow. */
   .pat-menu { position: fixed; z-index: 5; background: var(--panel); color: var(--ink);
@@ -678,11 +677,12 @@ function paramCard(row) {
 const SPIRAL_D = (() => {
   // A squared spiral, as its corner points: a short inner head (set just right of
   // centre), then runs growing outward with five well-rounded 90-degree turns, and a
-  // short tail. Spans 6..18 across, 7..17 down.
+  // short tail. Spans about 5.3..18.7 across, 6.4..17.6 down.
   // Each corner is rounded as far as its runs allow, up to RR: a run between two corners
   // gives each half its length; the head and tail give their whole length.
   const RR = 3.4;
-  const pts = [[10.6, 12], [13.4, 12], [13.4, 17], [6, 17], [6, 7], [18, 7], [18, 15.25]];
+  const pts = [[10.6, 12], [13.4, 12], [13.4, 17], [6, 17], [6, 7], [18, 7], [18, 15.25]]
+    .map(([x, y]) => [12 + (x - 12) * 1.12, 12 + (y - 12) * 1.12]);   // drawn 12% up
   const f = (x, y) => `${x.toFixed(2)} ${y.toFixed(2)}`;
   const unit = (a, b) => {
     const dx = b[0] - a[0], dy = b[1] - a[1], n = Math.hypot(dx, dy);
@@ -700,7 +700,7 @@ const SPIRAL_D = (() => {
   return d + ' L' + f(...pts[pts.length - 1]);
 })();
 const PATTERN_ICONS = {
-  spiral: `<path d="${SPIRAL_D}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>`,
+  spiral: `<path d="${SPIRAL_D}" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>`,
   ring: '<circle cx="12" cy="12" r="5.8" fill="none" stroke="currentColor" stroke-width="2.8"/>',
   center: '<circle cx="12" cy="12" r="4.9" fill="currentColor"/>',
 };
@@ -737,7 +737,7 @@ function patternsCard(row, poursRow) {
       ? `<button type="button" class="cap drop" title="Remove pour ${i}" ` +
         `aria-label="Remove pour ${i}"><span class="n">${i}</span><span class="x">\u00d7</span></button>`
       : `<span class="cap">${esc(cap)}</span>`;
-    cell.innerHTML = `<button type="button" class="ico ${name === 'spiral' ? '' : 'odd'}" ` +
+    cell.innerHTML = `<button type="button" class="ico" ` +
       `title="${esc(cap)}: ${esc(name)}" aria-haspopup="menu">${patIcon(name)}</button>` + capEl;
     const drop = cell.querySelector('.drop');
     if (drop) drop.addEventListener('click', (e) => {
