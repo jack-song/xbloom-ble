@@ -223,7 +223,7 @@
   .pat:hover .cap.drop .x, .pat .cap.drop:focus-visible .x { display: inline; font-size: 14px; }
   .pat .cap.drop:hover { background: var(--hue); color: var(--panel); filter: none; }
   /* Add a pour: a faded outlined plus in a rounded box, brightening on hover. */
-  .pat > button.ico.add { color: var(--dim); opacity: .35; }
+  .pat > button.ico.add { color: var(--dim); opacity: .22; }
   .pat > button.ico.add:hover { color: var(--hue); opacity: 1; background: transparent; }
   .pat > button.ico { padding: 6px; background: transparent; color: var(--ink); line-height: 0; }
   .pat > button.ico:hover { background: var(--wash); filter: none; }
@@ -780,9 +780,9 @@ function patternsCard(row, poursRow) {
     add.className = 'pat';
     add.innerHTML = '<button type="button" class="ico add" title="Add a pour" ' +
       'aria-label="Add a pour"><svg viewBox="0 0 24 24" aria-hidden="true">' +
-      '<rect x="2" y="2" width="20" height="20" rx="5.5" fill="none" stroke="currentColor" ' +
-      'stroke-width="1.5"/><path d="M12 8.5v7M8.5 12h7" fill="none" stroke="currentColor" ' +
-      'stroke-width="1.5" stroke-linecap="round"/></svg></button><span class="cap">&nbsp;</span>';
+      '<rect x="1.1" y="1.1" width="21.8" height="21.8" rx="6" fill="none" stroke="currentColor" ' +
+      'stroke-width="2.2"/><path d="M12 8.6v6.8M8.6 12h6.8" fill="none" stroke="currentColor" ' +
+      'stroke-width="2.2" stroke-linecap="round"/></svg></button><span class="cap">&nbsp;</span>';
     add.querySelector('button').addEventListener('click', (e) => {
       e.stopPropagation(); setPours(list, pours + 1, 0);
     });
