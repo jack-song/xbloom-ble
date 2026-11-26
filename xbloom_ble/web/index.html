@@ -184,10 +184,13 @@
   /* Sections: grind, main, bloom, pours — each on a faint wash of its own colour, with
      room between them. No headings; the colour and the gap say it. Every label in a
      section wears the section's hue. */
-  .sec { background: color-mix(in srgb, var(--hue) 8%, transparent); border-radius: var(--r);
+  .sec { background: color-mix(in srgb, var(--hue) 6%, var(--bg)); border-radius: var(--r);
          padding: 0; overflow: hidden; }
   .sec + .sec { margin-top: 24px; }
   .sec .p .label { color: var(--hue); }
+  /* Values wear their section's hue too; a switched-off grinder goes grey. */
+  .sec .p input, .sec .p select { color: var(--hue); }
+  .sec .p.toggle.off .label { color: var(--dim); }
 
   /* Grinder on/off: a switch filling the value cell. Off hides grind size and RPM. */
   .p.toggle { cursor: pointer; }
@@ -673,12 +676,21 @@ function paramCard(row) {
 // Icons for where each pour's water lands: a spiral out from the middle, a ring at the
 // edge, or one spot in the centre.
 const SPIRAL_D = (() => {
-  const pts = [];
-  for (let t = 0; t <= 3 * Math.PI; t += 0.2) {      // 1.5 turns, out to r = 9
-    const r = 0.5 + t * 0.9;
-    pts.push(`${(12 + r * Math.cos(t)).toFixed(2)} ${(12 + r * Math.sin(t)).toFixed(2)}`);
+  // A squared spiral: eight straight runs growing outward from the centre (s, s, 2s, 2s,
+  // 3s, 3s, 4s, 4s), so seven 90-degree turns, each rounded off. Spans 3..21.
+  const s = 4.5, rr = 1.6, dirs = [[1, 0], [0, 1], [-1, 0], [0, -1]];
+  const pts = [[12, 12]];
+  for (let k = 0; k < 8; k++) {
+    const [x, y] = pts[k], [dx, dy] = dirs[k % 4], len = s * (Math.floor(k / 2) + 1);
+    pts.push([x + dx * len, y + dy * len]);
   }
-  return 'M' + pts.join(' L');
+  const f = (x, y) => `${x.toFixed(2)} ${y.toFixed(2)}`;
+  let d = 'M' + f(...pts[0]);
+  for (let k = 1; k < pts.length - 1; k++) {
+    const [x, y] = pts[k], [ix, iy] = dirs[(k - 1) % 4], [ox, oy] = dirs[k % 4];
+    d += ` L${f(x - ix * rr, y - iy * rr)} Q${f(x, y)} ${f(x + ox * rr, y + oy * rr)}`;
+  }
+  return d + ' L' + f(...pts[pts.length - 1]);
 })();
 const PATTERN_ICONS = {
   spiral: `<path d="${SPIRAL_D}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>`,
@@ -796,7 +808,7 @@ window.addEventListener('scroll', closePat, true);
 function grinderCard() {
   const on = Number(params.grind) > 0;
   const el = document.createElement('label');
-  el.className = 'p toggle' + (on ? ' on' : '');
+  el.className = 'p toggle' + (on ? ' on' : ' off');
   el.innerHTML = '<span class="label">Grinder</span><span class="val"><span class="switch">' +
     `<input type="checkbox" id="p-grinder" role="switch"${on ? ' checked' : ''}>` +
     `<span class="track"></span></span><span class="switch-state">${on ? 'on' : 'off'}</span></span>`;
