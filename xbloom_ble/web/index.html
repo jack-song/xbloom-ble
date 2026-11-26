@@ -210,7 +210,9 @@
                   letter-spacing: 0; }
 
   /* Pour patterns: one icon dropdown per pour, bloom first, in a row. */
-  .pats { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 34px 8px 8px; }
+  /* Sized so the most there can be (bloom + 5 pours, or bloom + 4 and the +) fit one row
+     in the 330px column, clear of the revert button on the right. */
+  .pats { display: flex; flex-wrap: wrap; gap: 2px; padding: 8px 32px 8px 6px; }
   .pat { position: relative; display: flex; flex-direction: column; align-items: center;
          gap: 2px; }
   .pat .cap { font: 600 13px/20px var(--sans); color: var(--hue); letter-spacing: .04em;
@@ -226,7 +228,7 @@
   /* Add a pour: a faded outlined plus in a rounded box, brightening on hover. */
   .pat > button.ico.add { color: var(--dim); opacity: .22; }
   .pat > button.ico.add:hover { color: var(--hue); opacity: 1; background: transparent; }
-  .pat > button.ico { padding: 6px; background: transparent; color: var(--ink); line-height: 0; }
+  .pat > button.ico { padding: 5px; background: transparent; color: var(--ink); line-height: 0; }
   .pat > button.ico:hover { background: var(--wash); filter: none; }
   .pat svg { width: 26px; height: 26px; display: block; }
   /* Fixed, and placed under its button by script: the brew panel clips its overflow. */
