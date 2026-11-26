@@ -213,14 +213,15 @@
   .pats { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 34px 8px 8px; }
   .pat { position: relative; display: flex; flex-direction: column; align-items: center;
          gap: 2px; }
-  .pat .cap { font: 600 11px/14px var(--sans); color: var(--hue); letter-spacing: .04em;
-              height: 14px; }
-  /* A pour's number turns into a × on hover: click it to remove that pour. */
-  .pat .cap.drop { background: none; border: 0; padding: 0 4px; cursor: pointer;
-                   border-radius: 7px; position: relative; }
-  .pat .cap.drop .x { display: none; }
-  .pat:hover .cap.drop .n, .pat .cap.drop:focus-visible .n { display: none; }
-  .pat:hover .cap.drop .x, .pat .cap.drop:focus-visible .x { display: inline; font-size: 14px; }
+  .pat .cap { font: 600 13px/20px var(--sans); color: var(--hue); letter-spacing: .04em;
+              height: 20px; align-self: stretch; text-align: center; }
+  /* A pour's number is its remove button: the whole slot under the icon. It turns into a
+     × only while the pointer is on it, so whatever changes is what you can click. */
+  .pat .cap.drop { background: none; border: 0; padding: 0; cursor: pointer;
+                   border-radius: var(--r); display: block; width: 100%; }
+  .pat .cap.drop .x { display: none; font-size: 17px; font-weight: 500; }
+  .pat .cap.drop:hover .n, .pat .cap.drop:focus-visible .n { display: none; }
+  .pat .cap.drop:hover .x, .pat .cap.drop:focus-visible .x { display: inline; }
   .pat .cap.drop:hover { background: var(--hue); color: var(--panel); filter: none; }
   /* Add a pour: a faded outlined plus in a rounded box, brightening on hover. */
   .pat > button.ico.add { color: var(--dim); opacity: .22; }
