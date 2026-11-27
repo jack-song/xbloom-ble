@@ -185,7 +185,11 @@
      room between them. No headings; the colour and the gap say it. Every label in a
      section wears the section's hue. */
   .sec { background: color-mix(in srgb, var(--hue) 6%, var(--bg)); border-radius: var(--r);
-         padding: 0; overflow: hidden; }
+         padding: 0; overflow: hidden;
+         /* a thin, faint edge in the section's hue: an outline drawn inside, so it adds no
+            space and the rows still meet the edge exactly */
+         outline: 1px solid color-mix(in srgb, var(--hue) 22%, transparent);
+         outline-offset: -1px; }
   .sec + .sec { margin-top: 32px; }
   .sec .p .label { color: var(--hue); }
   /* Values wear their section's hue too; a switched-off grinder goes grey. */
